@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Imkerbuch</title>
-<meta name="description" content="Sprachnotizen für die Imkerei aufnehmen und transkribieren">
+<meta name="description" content="Sprachnotizen für die Imkerei aufnehmen, transkribieren und auswerten">
 <meta name="theme-color" content="#f5a524">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -15,37 +15,16 @@
 <link rel="icon" type="image/png" href="icon-192.png">
 <style>
   :root {
-    --bg: #fbf8f1;
-    --surface: #ffffff;
-    --surface-2: #f4efe3;
-    --text: #2b2418;
-    --muted: #7a6f5c;
-    --border: #e6dcc6;
-    --accent: #e8951a;
-    --accent-strong: #c47706;
-    --accent-text: #ffffff;
-    --danger: #c0392b;
-    --ok: #2e7d4f;
-    --warn: #b7791f;
-    --rec: #d63a2f;
+    --bg: #fbf8f1; --surface: #ffffff; --surface-2: #f4efe3; --text: #2b2418; --muted: #7a6f5c;
+    --border: #e6dcc6; --accent: #e8951a; --accent-strong: #c47706; --accent-text: #ffffff;
+    --danger: #c0392b; --ok: #2e7d4f; --warn: #b7791f; --rec: #d63a2f;
     --shadow: 0 1px 2px rgba(60,40,0,.06), 0 4px 16px rgba(60,40,0,.06);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #17140f;
-      --surface: #221e17;
-      --surface-2: #2c271e;
-      --text: #f2ead9;
-      --muted: #a89d87;
-      --border: #3a3326;
-      --accent: #f5a524;
-      --accent-strong: #ffb84a;
-      --accent-text: #1d1503;
-      --danger: #ef6b5e;
-      --ok: #5fc58a;
-      --warn: #e7b14a;
-      --rec: #ff5a4f;
-      --shadow: none;
+      --bg: #17140f; --surface: #221e17; --surface-2: #2c271e; --text: #f2ead9; --muted: #a89d87;
+      --border: #3a3326; --accent: #f5a524; --accent-strong: #ffb84a; --accent-text: #1d1503;
+      --danger: #ef6b5e; --ok: #5fc58a; --warn: #e7b14a; --rec: #ff5a4f; --shadow: none;
     }
   }
   :root[data-theme="dark"] {
@@ -58,19 +37,19 @@
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    padding-bottom: env(safe-area-inset-bottom);
   }
   header {
     position: sticky; top: 0; z-index: 10;
     background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border);
-    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
-    display: flex; align-items: center; gap: 12px;
+    padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+    display: flex; align-items: center; gap: 6px;
   }
-  header h1 { font-size: 19px; margin: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
+  header h1 { font-size: 19px; margin: 0; flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  header h1 span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   header h1 img { width: 26px; height: 26px; border-radius: 6px; }
-  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
   a { color: var(--accent-strong); }
   button, .btn {
     font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text);
@@ -81,35 +60,32 @@
   .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
   .btn-danger { color: var(--danger); }
   .btn-ghost { background: transparent; border-color: transparent; }
-  .icon-btn { padding: 8px 10px; min-width: 44px; }
-  .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-    padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px;
-  }
+  .btn-small { min-height: 34px; padding: 5px 10px; font-size: 14px; border-radius: 10px; }
+  .icon-btn { padding: 8px 10px; min-width: 44px; font-size: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
   .card h2 { font-size: 17px; margin: 0 0 10px; }
   .muted { color: var(--muted); }
   .small { font-size: 14px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .grow { flex: 1; }
-  input[type=text], input[type=password], input[type=search], textarea, select {
-    font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px;
+  input[type=text], input[type=password], input[type=search], input[type=number], input[type=date], textarea, select {
+    font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; min-height: 44px;
     border: 1px solid var(--border); background: var(--surface); color: var(--text);
   }
-  textarea { min-height: 45vh; resize: vertical; line-height: 1.55; }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; margin: 0; }
+  textarea { resize: vertical; line-height: 1.55; }
+  textarea.transcript { min-height: 40vh; }
   label { display: block; font-weight: 600; margin: 12px 0 6px; }
-  .banner {
-    background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 1px solid var(--accent);
-    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
-  }
+  .banner { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
   .banner.err { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border-color: var(--danger); }
+  .banner.ok { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); border-color: var(--ok); }
 
-  /* Recorder */
+  /* Aufnahme */
   .recorder { text-align: center; padding: 22px 16px; }
   .rec-btn {
     width: 120px; height: 120px; border-radius: 50%; border: none; margin: 4px auto 12px;
     background: var(--rec); color: #fff; font-weight: 700; font-size: 15px;
-    box-shadow: 0 0 0 8px color-mix(in srgb, var(--rec) 18%, transparent);
-    display: flex; flex-direction: column;
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--rec) 18%, transparent); display: flex; flex-direction: column;
   }
   .rec-btn svg { width: 40px; height: 40px; margin-bottom: 4px; }
   .timer { font-size: 44px; font-variant-numeric: tabular-nums; font-weight: 600; margin: 6px 0 2px; }
@@ -120,12 +96,9 @@
   .level > div { height: 100%; width: 0; background: var(--accent); transition: width .08s; }
   .rec-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
-  /* List */
+  /* Listen */
   .day { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 20px 4px 8px; font-weight: 600; }
-  .item {
-    display: block; text-decoration: none; color: inherit; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
-  }
+  .item { display: block; text-decoration: none; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
   .item:active { background: var(--surface-2); }
   .item-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
   .item-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -134,48 +107,109 @@
   .empty { text-align: center; padding: 30px 10px; color: var(--muted); }
   mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }
 
+  /* Einträge */
+  .entry { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; }
+  .entry input[type=checkbox] { margin-top: 2px; }
+  .entry a { flex: 1; text-decoration: none; color: inherit; min-width: 0; }
+  .entry .ico { flex: none; width: 22px; text-align: center; }
+  .entry .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .entry.done .txt { text-decoration: line-through; color: var(--muted); }
+  .overdue { color: var(--danger); font-weight: 600; }
+  .filters { display: flex; gap: 6px; overflow-x: auto; margin: 4px 0 10px; padding-bottom: 2px; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters button { min-height: 34px; padding: 4px 12px; border-radius: 999px; font-size: 14px; white-space: nowrap; }
+  .filters button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .values { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+  .val { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+  .val b { display: block; font-size: 18px; }
+  .val span { font-size: 12px; color: var(--muted); }
+  .colony-card { display: block; text-decoration: none; color: inherit; }
+  .colony-card h2 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  details > summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
+
+  /* Prüfansicht */
+  .grp { margin: 16px 0 6px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .sg { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 8px; display: grid; gap: 8px; }
+  .sg.off { opacity: .5; }
+  .sg-top { display: flex; gap: 8px; align-items: center; }
+  .sg-top select { flex: 1; min-width: 0; padding: 6px 8px; min-height: 38px; font-size: 14px; }
+  .sg-sub { display: flex; gap: 8px; align-items: center; }
+  .sg-sub > * { flex: 1; min-width: 0; }
+  .sg-sub .lbl { flex: none; font-size: 14px; color: var(--muted); }
+  .unknown { border: 1px dashed var(--warn); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+
   .colony { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .colony:last-child { border-bottom: none; }
+
+  nav.tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex;
+    background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.tabs a { flex: 1; text-align: center; text-decoration: none; color: var(--muted); font-size: 12px; padding: 8px 0 6px; position: relative; }
+  nav.tabs a .e { display: block; font-size: 22px; line-height: 1.1; }
+  nav.tabs a.active { color: var(--accent-strong); font-weight: 600; }
+  nav.tabs .badge { position: absolute; top: 4px; left: calc(50% + 8px); background: var(--rec); color: #fff; border-radius: 999px; font-size: 11px; min-width: 18px; padding: 0 5px; line-height: 18px; }
   .toast {
-    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 15px;
     z-index: 100; max-width: calc(100% - 32px); box-shadow: 0 4px 20px rgba(0,0,0,.2);
   }
-  .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+  .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <header>
-  <a id="backBtn" class="btn btn-ghost icon-btn hidden" href="#/" aria-label="Zurück">&#8592;</a>
+  <button id="backBtn" class="btn btn-ghost icon-btn hidden" aria-label="Zurück">&#8592;</button>
   <h1><img src="icon-192.png" alt=""> <span id="title">Imkerbuch</span></h1>
+  <a id="addBtn" class="btn btn-ghost icon-btn" href="#/neu" aria-label="Eintrag hinzufügen">+</a>
   <a id="settingsBtn" class="btn btn-ghost icon-btn" href="#/einstellungen" aria-label="Einstellungen">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </a>
 </header>
 <main id="app"></main>
+<nav class="tabs" id="tabs">
+  <a href="#/" data-tab="notizen"><span class="e">🎙️</span>Notizen<span class="badge hidden" id="badgeReview"></span></a>
+  <a href="#/voelker" data-tab="voelker"><span class="e">🐝</span>Völker</a>
+  <a href="#/aufgaben" data-tab="aufgaben"><span class="e">✅</span>Aufgaben<span class="badge hidden" id="badgeTasks"></span></a>
+  <a href="#/fragen" data-tab="fragen"><span class="e">❓</span>Fragen</a>
+</nav>
 <input type="file" id="fileInput" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.mp4" class="hidden">
 
 <script>
 "use strict";
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "2.0.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Grenze des kostenlosen Groq-Tarifs
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
 const BEE_TERMS = "Königin, Weisel, Weiselzelle, Schwarmzelle, Spielnäpfchen, Stifte, Brutnest, verdeckelte Brut, offene Brut, " +
   "Drohnenbrut, Drohnenrahmen, Baurahmen, Zarge, Honigraum, Absperrgitter, Mittelwand, Futterkranz, Futterwabe, Varroa, " +
   "Varroafall, Windel, Ameisensäure, Oxalsäure, Ableger, Schwarmstimmung, Sanftmut, Wabensitz, Stockwaage, Trachtlücke, Pollen, Nektar";
+const GENERAL = "_";
+const GENERAL_NAME = "Allgemein / Bienenstand";
+const TYPES = {
+  beobachtung: { label: "Beobachtung", plural: "Beobachtungen", icon: "👁️" },
+  aufgabe: { label: "Aufgabe", plural: "Aufgaben", icon: "✅" },
+  frage: { label: "Frage", plural: "Fragen", icon: "❓" },
+  messwert: { label: "Messwert", plural: "Messwerte", icon: "📊" },
+};
+const METRICS = {
+  koenigin: { label: "Königin (Jahrgang)", short: "Königin" },
+  zargen: { label: "Zargen (Anzahl)", short: "Zargen" },
+  gewicht: { label: "Gewicht (kg)", short: "Gewicht", unit: "kg" },
+  varroa: { label: "Varroafall (Milben)", short: "Varroafall", unit: "Milben" },
+};
 
 /* ---------- Speicher (IndexedDB) ---------- */
-const DB_NAME = "imkerbuch";
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open("imkerbuch", 2);
     req.onupgradeneeded = () => {
       const d = req.result;
-      if (!d.objectStoreNames.contains("recordings")) d.createObjectStore("recordings", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("colonies")) d.createObjectStore("colonies", { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -186,9 +220,8 @@ async function tx(store, mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
     const t = d.transaction(store, mode);
-    const s = t.objectStore(store);
     let result;
-    const r = fn(s);
+    const r = fn(t.objectStore(store));
     if (r) r.onsuccess = () => { result = r.result; };
     t.oncomplete = () => resolve(result);
     t.onerror = () => reject(t.error);
@@ -207,19 +240,32 @@ const settings = {
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const app = $("#app");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const fmtDur = (sec) => { sec = Math.round(sec || 0); const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${String(s).padStart(2, "0")}`; };
+const fmtDur = (sec) => { sec = Math.round(sec || 0); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; };
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-function dayLabel(iso) {
-  const d = new Date(iso), t = new Date();
-  const same = (a, b) => a.toDateString() === b.toDateString();
-  const y = new Date(); y.setDate(t.getDate() - 1);
-  if (same(d, t)) return "Heute";
-  if (same(d, y)) return "Gestern";
-  return fmtDate(iso);
+const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayStr = () => localDate();
+const fmtShort = (ymd) => { if (!ymd) return ""; const [y, m, d] = ymd.split("-"); return `${d}.${m}.${y}`; };
+const fmtNum = (n) => Number(n).toLocaleString("de-DE", { maximumFractionDigits: 1 });
+function dayLabel(dateLike) {
+  const ymd = dateLike.length > 10 ? localDate(new Date(dateLike)) : dateLike;
+  const t = todayStr(); const y = new Date(); y.setDate(y.getDate() - 1);
+  if (ymd === t) return "Heute";
+  if (ymd === localDate(y)) return "Gestern";
+  return new Date(ymd + "T12:00:00").toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+function dueLabel(ymd) {
+  if (!ymd) return "";
+  const t = todayStr();
+  const tm = new Date(); tm.setDate(tm.getDate() + 1);
+  if (ymd < t) return `<span class="overdue">überfällig seit ${fmtShort(ymd)}</span>`;
+  if (ymd === t) return `<span class="overdue">heute fällig</span>`;
+  if (ymd === localDate(tm)) return "morgen fällig";
+  return "fällig " + new Date(ymd + "T12:00:00").toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 }
 let toastTimer;
 function toast(msg, ms = 2600) {
@@ -228,19 +274,50 @@ function toast(msg, ms = 2600) {
   el.className = "toast"; el.textContent = msg; document.body.appendChild(el);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), ms);
 }
+function fmtMetric(metric, value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (metric === "koenigin") return `Königin ${value}`;
+  if (metric === "zargen") return `${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
+  if (metric === "gewicht") return `${fmtNum(value)} kg`;
+  if (metric === "varroa") return `Varroafall ${fmtNum(value)}`;
+  return String(value);
+}
+const normName = (s) => String(s || "").toLowerCase().replace(/^\s*(das\s+)?volk\s+/, "").replace(/[^a-z0-9äöüß ]/g, " ").replace(/\s+/g, " ").trim();
+function matchColony(name, colonies) {
+  const n = normName(name); if (!n) return null;
+  for (const c of colonies) {
+    const names = [c.name, ...(c.aliases || [])].map(normName).filter(Boolean);
+    if (names.includes(n)) return c.id;
+  }
+  for (const c of colonies) {
+    const names = [c.name, ...(c.aliases || [])].map(normName).filter(Boolean);
+    if (names.some(x => (" " + n + " ").includes(" " + x + " ") || (" " + x + " ").includes(" " + n + " "))) return c.id;
+  }
+  return null;
+}
+const cleanNewName = (s) => String(s || "").replace(/^\s*(das\s+)?volk\s+/i, "").trim().replace(/^./, c => c.toUpperCase());
+const colonyLabel = (id, colonies) => !id ? GENERAL_NAME : (colonies.find(c => c.id === id)?.name || GENERAL_NAME);
+const sortEntries = (a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || "").localeCompare(a.createdAt || "");
 
-/* ---------- Transkription (Groq Whisper) ---------- */
+/* ---------- Groq: Transkription ---------- */
+const groqKey = () => settings.get("groqKey").trim();
+async function groqError(res) {
+  let detail = "";
+  try { detail = (await res.json())?.error?.message || ""; } catch {}
+  if (res.status === 401) return new Error("Der Groq-Schlüssel ist ungültig. Bitte in den Einstellungen prüfen.");
+  if (res.status === 429) return new Error("Das kostenlose Limit ist gerade erreicht. Bitte später erneut versuchen.");
+  if (res.status === 413) return new Error("Die Datei ist zu groß für den kostenlosen Tarif.");
+  const e = new Error(`Fehler ${res.status}. ${detail}`); e.status = res.status; e.detail = detail; return e;
+}
 async function buildPrompt() {
   const colonies = await getAll("colonies");
   const names = colonies.flatMap(c => [c.name, ...(c.aliases || [])]).filter(Boolean);
   let p = "Notizen zur Durchsicht von Bienenvölkern in einer Hobby-Imkerei.";
   if (names.length) p += " Völker: " + names.join(", ") + ".";
-  p += " Begriffe: " + BEE_TERMS + ".";
-  return p.slice(0, 850); // Whisper berücksichtigt nur den Anfang des Hinweistexts
+  return (p + " Begriffe: " + BEE_TERMS + ".").slice(0, 850);
 }
 function extFor(type, fallbackName) {
   if (fallbackName && /\.[a-z0-9]{2,5}$/i.test(fallbackName)) return fallbackName;
-  if (/mp4|m4a|aac/.test(type)) return "aufnahme.m4a";
   if (/webm/.test(type)) return "aufnahme.webm";
   if (/ogg/.test(type)) return "aufnahme.ogg";
   if (/wav/.test(type)) return "aufnahme.wav";
@@ -248,8 +325,7 @@ function extFor(type, fallbackName) {
   return "aufnahme.m4a";
 }
 async function transcribe(blob, fileName) {
-  const key = settings.get("groqKey").trim();
-  if (!key) throw new Error("Kein Groq-Schlüssel hinterlegt. Bitte in den Einstellungen eintragen.");
+  if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt. Bitte in den Einstellungen eintragen.");
   if (blob.size > MAX_UPLOAD_BYTES) throw new Error(`Die Datei ist ${(blob.size / 1048576).toFixed(1)} MB groß. Erlaubt sind höchstens 25 MB.`);
   const fd = new FormData();
   fd.append("file", blob, extFor(blob.type || "", fileName));
@@ -259,22 +335,118 @@ async function transcribe(blob, fileName) {
   fd.append("response_format", "json");
   fd.append("prompt", await buildPrompt());
   let res;
-  try {
-    res = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + key }, body: fd });
-  } catch (e) {
-    throw new Error("Keine Verbindung zum Transkriptionsdienst. Die Aufnahme ist gespeichert und kann später erneut gesendet werden.");
-  }
-  if (!res.ok) {
-    let detail = "";
-    try { detail = (await res.json())?.error?.message || ""; } catch {}
-    if (res.status === 401) throw new Error("Der Groq-Schlüssel ist ungültig. Bitte in den Einstellungen prüfen.");
-    if (res.status === 429) throw new Error("Das kostenlose Tageslimit ist erreicht. Die Aufnahme ist gespeichert, bitte später erneut versuchen. " + detail);
-    if (res.status === 413) throw new Error("Die Aufnahme ist zu groß für den kostenlosen Tarif.");
-    throw new Error(`Fehler ${res.status} beim Transkribieren. ${detail}`);
-  }
-  const data = await res.json();
-  return (data.text || "").trim();
+  try { res = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + groqKey() }, body: fd }); }
+  catch { throw new Error("Keine Verbindung zum Transkriptionsdienst. Die Aufnahme ist gespeichert und kann später erneut gesendet werden."); }
+  if (!res.ok) throw await groqError(res);
+  return ((await res.json()).text || "").trim();
 }
+
+/* ---------- Groq: Analyse ---------- */
+async function listChatModels() {
+  const res = await fetch(GROQ_URL + "/models", { headers: { Authorization: "Bearer " + groqKey() } });
+  if (!res.ok) throw await groqError(res);
+  const data = await res.json();
+  return (data.data || []).map(m => m.id).filter(id => !/whisper|guard|tts|playai|distil|orpheus|compound|prompt/i.test(id)).sort();
+}
+async function chatModel(forceRefresh = false) {
+  const chosen = settings.get("chatModel");
+  if (chosen) return chosen;
+  const cached = settings.get("autoModel"), at = Number(settings.get("autoModelAt", "0"));
+  if (!forceRefresh && cached && Date.now() - at < 86400000) return cached;
+  try {
+    const ids = await listChatModels();
+    const pick = PREFERRED_CHAT_MODELS.find(m => ids.includes(m)) || ids[0] || PREFERRED_CHAT_MODELS[0];
+    settings.set("autoModel", pick); settings.set("autoModelAt", String(Date.now()));
+    return pick;
+  } catch { return cached || PREFERRED_CHAT_MODELS[0]; }
+}
+function analysisPrompt(colonies, when) {
+  const d = new Date(when);
+  const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
+  const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}`).join("\n") : "(noch keine eingetragen)";
+  return `Du bist Assistent einer Hobby-Imkerei. Du bekommst das Transkript einer Sprachnotiz, die bei der Durchsicht der Bienenvölker aufgenommen wurde.
+Aufnahmedatum: ${localDate(d)} (${wd}).
+
+Bekannte Völker:
+${list}
+
+Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
+- "beobachtung": eine Feststellung, z. B. Königin gesehen, Stifte, Brutbild, Futtervorrat, Sanftmut, Schwarmstimmung.
+- "aufgabe": etwas, das noch erledigt werden soll. "dueDate" als YYYY-MM-DD, wenn ein Zeitpunkt genannt oder ableitbar ist (vom Aufnahmedatum aus gerechnet; "nächste Woche" = Montag der Folgewoche, "morgen", "in drei Tagen" usw.). Sonst null.
+- "frage": eine offene Frage, die der Imker klären möchte.
+- "messwert": ein Zahlenwert mit "metric" = "zargen" (Anzahl Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
+
+Regeln:
+- Ordne jeden Eintrag dem Volk zu, über das gerade gesprochen wird. Ein Volkswechsel wird meist angesagt ("Jetzt Volk X"). Alles danach gehört zu diesem Volk, bis ein anderes genannt wird.
+- Nutze die id des bekannten Volks, auch wenn nur ein Spitzname oder ein Teil des Namens genannt wird.
+- Wird ein Volk genannt, das nicht bekannt ist: "colonyId": null und "colonyName": der genannte Name.
+- Einträge ohne Bezug zu einem Volk (z. B. "Futter kaufen"): "colonyId": null und "colonyName": null.
+- "text": kurz, sachlich, auf Deutsch, ohne Füllwörter. Messwerte bekommen ebenfalls einen kurzen Text, z. B. "Varroafall 5 Milben".
+- Für einen Messwert keine zusätzliche Beobachtung mit demselben Inhalt anlegen.
+- Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
+
+Antworte ausschließlich mit JSON in genau dieser Form:
+{"items":[{"type":"beobachtung|aufgabe|frage|messwert","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"zargen|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null"}]}`;
+}
+function parseJsonLoose(s) {
+  s = String(s || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try { return JSON.parse(s); } catch {}
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if (a >= 0 && b > a) return JSON.parse(s.slice(a, b + 1));
+  throw new Error("Antwort der KI war kein gültiges JSON.");
+}
+async function analyze(text, when) {
+  if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt.");
+  const colonies = await getAll("colonies");
+  const sys = analysisPrompt(colonies, when);
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = await chatModel(attempt > 0);
+    const body = { model, temperature: 0.2, response_format: { type: "json_object" },
+      messages: [{ role: "system", content: sys }, { role: "user", content: "Transkript:\n" + text }] };
+    if (/gpt-oss/.test(model)) body.reasoning_effort = "low";
+    let res;
+    try { res = await fetch(GROQ_URL + "/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + groqKey(), "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+    catch { throw new Error("Keine Verbindung zur KI. Bitte später erneut analysieren."); }
+    if (!res.ok) {
+      lastErr = await groqError(res);
+      if ((lastErr.status === 400 || lastErr.status === 404) && /model/i.test(lastErr.detail || "") && !settings.get("chatModel")) continue;
+      throw lastErr;
+    }
+    const data = await res.json();
+    const obj = parseJsonLoose(data.choices?.[0]?.message?.content);
+    return normalizeItems(obj.items || [], colonies);
+  }
+  throw lastErr || new Error("Analyse fehlgeschlagen.");
+}
+function normalizeItems(items, colonies) {
+  const out = [];
+  for (const it of items) {
+    if (!it || !TYPES[it.type]) continue;
+    const text = String(it.text || "").trim();
+    let assign = GENERAL;
+    const known = colonies.find(c => c.id === it.colonyId);
+    if (known) assign = known.id;
+    else if (it.colonyName && String(it.colonyName).toLowerCase() !== "null") {
+      assign = matchColony(it.colonyName, colonies) || ("new:" + cleanNewName(it.colonyName));
+    }
+    const s = { id: uid(), include: true, type: it.type, text, assign, metric: null, value: null, dueDate: null };
+    if (it.type === "messwert") {
+      s.metric = METRICS[it.metric] ? it.metric : null;
+      const v = typeof it.value === "number" ? it.value : parseFloat(String(it.value ?? "").replace(",", "."));
+      s.value = isFinite(v) ? v : null;
+      if (!s.metric || s.value === null) { s.type = "beobachtung"; }
+    }
+    if (it.type === "aufgabe" && /^\d{4}-\d{2}-\d{2}$/.test(it.dueDate || "")) s.dueDate = it.dueDate;
+    if (!s.text && s.type === "messwert") s.text = METRICS[s.metric].short + " " + fmtNum(s.value);
+    if (s.text) out.push(s);
+  }
+  return out;
+}
+
+/* ---------- Ablauf: Transkription → Analyse ---------- */
+const busy = new Set();     // Transkription läuft
+const busyX = new Set();    // Analyse läuft
 
 async function processRecording(rec) {
   rec.status = "pending"; rec.error = "";
@@ -282,7 +454,7 @@ async function processRecording(rec) {
   try {
     const text = await transcribe(rec.audio, rec.fileName);
     rec.text = text; rec.rawText = text; rec.status = "done"; rec.error = "";
-    delete rec.audio; // Audio wird nach erfolgreicher Transkription nicht aufbewahrt
+    delete rec.audio;
     await put("recordings", rec);
     return true;
   } catch (e) {
@@ -291,31 +463,57 @@ async function processRecording(rec) {
     return false;
   }
 }
+async function runExtraction(rec) {
+  busyX.add(rec.id);
+  rec.extraction = { status: "pending" };
+  await put("recordings", rec);
+  refreshFor(rec.id);
+  try {
+    const suggestions = await analyze(rec.text, rec.createdAt);
+    rec.extraction = { status: "review", suggestions, analyzedAt: new Date().toISOString() };
+  } catch (e) {
+    rec.extraction = { status: "error", error: e.message };
+  }
+  await put("recordings", rec);
+  busyX.delete(rec.id);
+  updateBadges();
+  return rec.extraction.status === "review";
+}
+function refreshFor(recId) {
+  const r = route();
+  if (r.view === "detail" && r.id === recId) renderDetail(recId);
+  else if (r.view === "home") renderHome();
+}
+async function saveAndTranscribe(blob, meta) {
+  const rec = { id: uid(), createdAt: meta.createdAt || new Date().toISOString(), duration: meta.duration || 0, source: meta.source,
+    fileName: meta.fileName || "", text: "", rawText: "", status: "pending", error: "", audio: blob };
+  await put("recordings", rec);
+  busy.add(rec.id);
+  renderHome();
+  const ok = await processRecording(rec);
+  busy.delete(rec.id);
+  if (!ok) { toast("Transkription fehlgeschlagen. Die Aufnahme bleibt gespeichert.", 3500); refreshFor(rec.id); return; }
+  if (!rec.text) { toast("Es wurde kein Text erkannt."); refreshFor(rec.id); return; }
+  toast("Transkription fertig, wird ausgewertet…");
+  const ok2 = await runExtraction(rec);
+  toast(ok2 ? "Fertig. Bitte die Vorschläge prüfen." : "Die Auswertung ist fehlgeschlagen. Du kannst sie in der Notiz erneut starten.", 3500);
+  refreshFor(rec.id);
+}
 
 /* ---------- Aufnahme ---------- */
 const recorder = { mr: null, stream: null, chunks: [], start: 0, elapsed: 0, paused: false, timer: null, wake: null, audioCtx: null, raf: null };
-
 function pickMime() {
   const opts = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
   return opts.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
 }
-async function keepAwake() {
-  try { if ("wakeLock" in navigator) recorder.wake = await navigator.wakeLock.request("screen"); } catch {}
-}
+async function keepAwake() { try { if ("wakeLock" in navigator) recorder.wake = await navigator.wakeLock.request("screen"); } catch {} }
 function releaseAwake() { try { recorder.wake?.release(); } catch {} recorder.wake = null; }
-
 async function startRecording() {
-  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    toast("Dieses Gerät oder dieser Browser unterstützt keine Aufnahme. Bitte eine Datei hochladen.", 4000); return;
-  }
-  try {
-    recorder.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-  } catch (e) {
-    toast("Kein Zugriff aufs Mikrofon. Bitte in den iPhone-Einstellungen erlauben.", 4500); return;
-  }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { toast("Dieses Gerät unterstützt keine Aufnahme. Bitte eine Datei hochladen.", 4000); return; }
+  try { recorder.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch { toast("Kein Zugriff aufs Mikrofon. Bitte in den iPhone-Einstellungen erlauben.", 4500); return; }
   const mime = pickMime();
-  const opts = { audioBitsPerSecond: 64000 };
-  if (mime) opts.mimeType = mime;
+  const opts = { audioBitsPerSecond: 64000 }; if (mime) opts.mimeType = mime;
   recorder.mr = new MediaRecorder(recorder.stream, opts);
   recorder.chunks = [];
   recorder.mr.ondataavailable = (e) => { if (e.data && e.data.size) recorder.chunks.push(e.data); };
@@ -323,11 +521,10 @@ async function startRecording() {
   recorder.start = Date.now(); recorder.elapsed = 0; recorder.paused = false;
   await keepAwake();
   startLevelMeter();
-  recorder.timer = setInterval(updateTimer, 250);
+  recorder.timer = setInterval(() => { const el = $("#timer"); if (el) el.textContent = fmtDur(currentElapsed()); }, 250);
   renderHome();
 }
 function currentElapsed() { return recorder.elapsed + (recorder.paused ? 0 : (Date.now() - recorder.start) / 1000); }
-function updateTimer() { const el = $("#timer"); if (el) el.textContent = fmtDur(currentElapsed()); }
 function togglePause() {
   if (!recorder.mr) return;
   if (recorder.paused) { recorder.mr.resume(); recorder.start = Date.now(); recorder.paused = false; }
@@ -338,8 +535,8 @@ function startLevelMeter() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     recorder.audioCtx = new Ctx();
-    const src = recorder.audioCtx.createMediaStreamSource(recorder.stream);
-    const an = recorder.audioCtx.createAnalyser(); an.fftSize = 512; src.connect(an);
+    const an = recorder.audioCtx.createAnalyser(); an.fftSize = 512;
+    recorder.audioCtx.createMediaStreamSource(recorder.stream).connect(an);
     const buf = new Uint8Array(an.fftSize);
     const loop = () => {
       an.getByteTimeDomainData(buf);
@@ -369,27 +566,12 @@ function stopRecording(save) {
   };
   mr.stop();
 }
-async function saveAndTranscribe(blob, meta) {
-  const rec = { id: uid(), createdAt: meta.createdAt || new Date().toISOString(), duration: meta.duration || 0, source: meta.source,
-    fileName: meta.fileName || "", text: "", rawText: "", status: "pending", error: "", audio: blob };
-  await put("recordings", rec);
-  busy.add(rec.id);
-  renderHome();
-  const ok = await processRecording(rec);
-  busy.delete(rec.id);
-  toast(ok ? "Transkription fertig" : "Transkription fehlgeschlagen. Die Aufnahme bleibt gespeichert.", 3500);
-  if (location.hash.startsWith("#/aufnahme/" + rec.id)) renderDetail(rec.id); else if (route().view === "home") renderHome();
-}
-const busy = new Set();
-
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && recorder.mr) {
     keepAwake();
     if (recorder.mr.state === "inactive") toast("Die Aufnahme wurde vom iPhone unterbrochen.", 4000);
   }
 });
-
-/* ---------- Datei hochladen ---------- */
 $("#fileInput").addEventListener("change", async (e) => {
   const f = e.target.files?.[0]; e.target.value = "";
   if (!f) return;
@@ -405,30 +587,52 @@ $("#fileInput").addEventListener("change", async (e) => {
   await saveAndTranscribe(f, { source: "file", fileName: f.name, duration, createdAt });
 });
 
-/* ---------- Ansichten ---------- */
+/* ---------- Navigation ---------- */
 function route() {
-  const h = location.hash || "#/";
-  if (h.startsWith("#/aufnahme/")) return { view: "detail", id: decodeURIComponent(h.slice(11)) };
-  if (h.startsWith("#/einstellungen")) return { view: "settings" };
-  return { view: "home" };
+  const h = decodeURIComponent(location.hash || "#/");
+  const p = h.replace(/^#\/?/, "").split("/");
+  switch (p[0]) {
+    case "aufnahme": return { view: "detail", id: p[1] };
+    case "einstellungen": return { view: "settings" };
+    case "voelker": return { view: "colonies", tab: "voelker" };
+    case "volk": return { view: "colony", id: p[1] || GENERAL };
+    case "aufgaben": return { view: "tasks", tab: "aufgaben" };
+    case "fragen": return { view: "questions", tab: "fragen" };
+    case "eintrag": return { view: "entry", id: p[1] };
+    case "neu": return { view: "new", colony: p[1] || "", type: p[2] || "" };
+    default: return { view: "home", tab: "notizen" };
+  }
 }
-function setChrome(title, back) {
+let navDepth = 0;
+$("#backBtn").addEventListener("click", () => { if (navDepth > 0) history.back(); else location.hash = "#/"; });
+function setChrome(title, { back = false, tab = null, add = true } = {}) {
   $("#title").textContent = title;
   $("#backBtn").classList.toggle("hidden", !back);
-  $("#settingsBtn").classList.toggle("hidden", !!back);
+  $("#settingsBtn").classList.toggle("hidden", back);
+  $("#addBtn").classList.toggle("hidden", !add || back);
+  $("#tabs").classList.toggle("hidden", !tab);
+  $$("#tabs a").forEach(a => a.classList.toggle("active", a.dataset.tab === tab));
 }
-let searchTerm = "";
+async function updateBadges() {
+  const [recs, entries] = await Promise.all([getAll("recordings"), getAll("entries")]);
+  const review = recs.filter(r => r.extraction?.status === "review").length;
+  const t = todayStr();
+  const due = entries.filter(e => e.type === "aufgabe" && !e.done && e.dueDate && e.dueDate <= t).length;
+  const b1 = $("#badgeReview"), b2 = $("#badgeTasks");
+  b1.textContent = review; b1.classList.toggle("hidden", !review);
+  b2.textContent = due; b2.classList.toggle("hidden", !due);
+}
 
+/* ---------- Ansicht: Notizen ---------- */
+let searchTerm = "";
 async function renderHome() {
   if (route().view !== "home") return;
-  setChrome("Imkerbuch", false);
-  const hasKey = !!settings.get("groqKey").trim();
+  setChrome("Imkerbuch", { tab: "notizen" });
   const recs = (await getAll("recordings")).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const isRec = !!recorder.mr;
-
+  const reviewCount = recs.filter(r => r.extraction?.status === "review").length;
   let html = "";
-  if (!hasKey) html += `<div class="banner">Für die Transkription wird ein kostenloser Groq-Schlüssel benötigt. <a href="#/einstellungen">Jetzt einrichten</a></div>`;
-
+  if (!groqKey()) html += `<div class="banner">Für die Transkription wird ein kostenloser Groq-Schlüssel benötigt. <a href="#/einstellungen">Jetzt einrichten</a></div>`;
   html += `<section class="card recorder ${recorder.paused ? "paused" : ""}">`;
   if (!isRec) {
     html += `<button class="rec-btn" id="recStart" aria-label="Aufnahme starten">
@@ -447,13 +651,10 @@ async function renderHome() {
       <p class="muted small" style="margin:14px 0 0">Bildschirm bitte nicht sperren, sonst stoppt das iPhone die Aufnahme.</p>`;
   }
   html += `</section>`;
-
-  if (recs.length) {
-    html += `<input type="search" id="search" placeholder="In Notizen suchen…" value="${esc(searchTerm)}" autocomplete="off">`;
-  }
+  if (reviewCount) html += `<div class="banner">${reviewCount === 1 ? "Eine Notiz wartet" : reviewCount + " Notizen warten"} auf deine Prüfung (markiert mit „prüfen“).</div>`;
+  if (recs.length) html += `<input type="search" id="search" placeholder="In Notizen suchen…" value="${esc(searchTerm)}" autocomplete="off">`;
   html += `<div id="list"></div>`;
   app.innerHTML = html;
-
   $("#recStart")?.addEventListener("click", startRecording);
   $("#uploadLink")?.addEventListener("click", (e) => { e.preventDefault(); $("#fileInput").click(); });
   $("#recPause")?.addEventListener("click", togglePause);
@@ -461,13 +662,23 @@ async function renderHome() {
   $("#recDiscard")?.addEventListener("click", () => { if (confirm("Aufnahme wirklich verwerfen?")) stopRecording(false); });
   $("#search")?.addEventListener("input", (e) => { searchTerm = e.target.value; renderList(recs); });
   renderList(recs);
+  updateBadges();
 }
-
 function highlight(text, term) {
   const safe = esc(text);
   if (!term) return safe;
-  const re = new RegExp("(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "gi");
+  const re = new RegExp("(" + esc(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "gi");
   return safe.replace(re, "<mark>$1</mark>");
+}
+function recChip(r) {
+  if (r.status === "pending" || busy.has(r.id)) return `<span class="chip warn">wird transkribiert…</span>`;
+  if (r.status === "error") return `<span class="chip err">fehlgeschlagen</span>`;
+  const x = r.extraction?.status;
+  if (x === "pending" || busyX.has(r.id)) return `<span class="chip warn">wird ausgewertet…</span>`;
+  if (x === "review") return `<span class="chip warn">prüfen</span>`;
+  if (x === "error") return `<span class="chip err">Auswertung fehlgeschlagen</span>`;
+  if (x === "done") return `<span class="chip ok">übernommen</span>`;
+  return "";
 }
 function renderList(recs) {
   const list = $("#list"); if (!list) return;
@@ -479,86 +690,434 @@ function renderList(recs) {
   for (const r of filtered) {
     const day = dayLabel(r.createdAt);
     if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
-    let chip = "";
-    if (r.status === "pending" || busy.has(r.id)) chip = `<span class="chip warn">wird transkribiert…</span>`;
-    else if (r.status === "error") chip = `<span class="chip err">fehlgeschlagen</span>`;
-    else if (r.text !== r.rawText) chip = `<span class="chip ok">bearbeitet</span>`;
-    let preview = r.text ? highlight(previewSnippet(r.text, term), term) : `<span class="muted">${r.status === "error" ? esc(r.error) : "Text folgt…"}</span>`;
+    let txt = r.text || "";
+    if (term) { const i = txt.toLowerCase().indexOf(term); if (i > 60) txt = "…" + txt.slice(i - 40); }
+    const preview = r.text ? highlight(txt, term) : `<span class="muted">${r.status === "error" ? esc(r.error) : "Text folgt…"}</span>`;
     html += `<a class="item" href="#/aufnahme/${encodeURIComponent(r.id)}">
-      <div class="item-head"><span>${fmtTime(r.createdAt)} · ${fmtDur(r.duration)} min${r.source === "file" ? " · Datei" : ""}</span>${chip}</div>
+      <div class="item-head"><span>${fmtTime(r.createdAt)} · ${fmtDur(r.duration)} min${r.source === "file" ? " · Datei" : ""}</span>${recChip(r)}</div>
       <div class="item-text">${preview}</div></a>`;
   }
   list.innerHTML = html;
 }
-function previewSnippet(text, term) {
-  if (!term) return text;
-  const i = text.toLowerCase().indexOf(term);
-  return i > 60 ? "…" + text.slice(i - 40) : text;
-}
 
+/* ---------- Ansicht: Notiz mit Prüfansicht ---------- */
+function typeOptions(sel) { return Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${t.icon} ${t.label}</option>`).join(""); }
+function metricOptions(sel) { return Object.entries(METRICS).map(([k, m]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${m.label}</option>`).join(""); }
+function assignOptions(sel, colonies, unknownNames) {
+  let o = colonies.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("");
+  o += unknownNames.map(n => `<option value="${esc("new:" + n)}" ${("new:" + n) === sel ? "selected" : ""}>🆕 ${esc(n)} (unbekannt)</option>`).join("");
+  o += `<option value="${GENERAL}" ${sel === GENERAL ? "selected" : ""}>📍 ${GENERAL_NAME}</option>`;
+  return o;
+}
+function suggestionRow(s, colonies, unknownNames) {
+  return `<div class="sg ${s.include ? "" : "off"}" data-id="${esc(s.id)}">
+    <div class="sg-top">
+      <input type="checkbox" class="f-inc" ${s.include ? "checked" : ""} aria-label="Übernehmen">
+      <select class="f-type" aria-label="Art">${typeOptions(s.type)}</select>
+      <select class="f-assign" aria-label="Volk">${assignOptions(s.assign, colonies, unknownNames)}</select>
+    </div>
+    <input type="text" class="f-text" value="${esc(s.text)}" aria-label="Text">
+    <div class="sg-sub f-metric-row ${s.type === "messwert" ? "" : "hidden"}">
+      <select class="f-metric" aria-label="Messgröße">${metricOptions(s.metric || "varroa")}</select>
+      <input type="number" class="f-value" inputmode="decimal" step="any" value="${s.value ?? ""}" aria-label="Wert" placeholder="Wert">
+    </div>
+    <div class="sg-sub f-due-row ${s.type === "aufgabe" ? "" : "hidden"}">
+      <span class="lbl">Fällig am</span><input type="date" class="f-due" value="${esc(s.dueDate || "")}">
+    </div>
+  </div>`;
+}
+function readSuggestions(rec) {
+  for (const el of $$(".sg")) {
+    const s = rec.extraction.suggestions.find(x => x.id === el.dataset.id); if (!s) continue;
+    s.include = $(".f-inc", el).checked;
+    s.type = $(".f-type", el).value;
+    s.assign = $(".f-assign", el).value;
+    s.text = $(".f-text", el).value.trim();
+    s.metric = s.type === "messwert" ? $(".f-metric", el).value : null;
+    const v = parseFloat(String($(".f-value", el).value).replace(",", "."));
+    s.value = s.type === "messwert" && isFinite(v) ? v : null;
+    s.dueDate = s.type === "aufgabe" ? ($(".f-due", el).value || null) : null;
+  }
+}
+let saveSgTimer;
+function wireSuggestionRows(rec) {
+  for (const el of $$(".sg")) {
+    $(".f-type", el).addEventListener("change", (e) => {
+      $(".f-metric-row", el).classList.toggle("hidden", e.target.value !== "messwert");
+      $(".f-due-row", el).classList.toggle("hidden", e.target.value !== "aufgabe");
+    });
+    $(".f-inc", el).addEventListener("change", (e) => el.classList.toggle("off", !e.target.checked));
+    el.addEventListener("input", () => { clearTimeout(saveSgTimer); saveSgTimer = setTimeout(() => { readSuggestions(rec); put("recordings", rec); }, 500); });
+    el.addEventListener("change", () => { readSuggestions(rec); put("recordings", rec); });
+  }
+}
+async function applyReview(rec) {
+  readSuggestions(rec);
+  const colonies = await getAll("colonies");
+  const chosen = rec.extraction.suggestions.filter(s => s.include);
+  const unknown = [...new Set(chosen.filter(s => s.assign.startsWith("new:")).map(s => s.assign.slice(4)))];
+  const resolution = {};
+  for (const n of unknown) {
+    const sel = $$(".f-unknown").find(x => x.dataset.name === n);
+    const v = sel?.value || "";
+    if (!v) { toast(`Bitte zuerst festlegen, was mit „${n}“ passieren soll.`, 3500); sel?.focus(); return; }
+    resolution[n] = v;
+  }
+  for (const s of chosen) {
+    if (!s.text && !(s.type === "messwert" && s.value !== null)) { toast("Ein ausgewählter Eintrag hat keinen Text."); return; }
+    if (s.type === "messwert" && s.value === null) { toast(`Bitte einen Zahlenwert für „${s.text}“ eintragen.`, 3500); return; }
+  }
+  const newIds = {};
+  for (const [n, v] of Object.entries(resolution)) {
+    if (v === "create") {
+      const id = uid();
+      await put("colonies", { id, name: n, aliases: [], createdAt: new Date().toISOString() });
+      newIds[n] = id;
+    } else newIds[n] = v === GENERAL ? null : v;
+  }
+  const date = localDate(new Date(rec.createdAt));
+  const ids = [];
+  for (const s of chosen) {
+    let colonyId = s.assign === GENERAL ? null : s.assign;
+    if (s.assign.startsWith("new:")) colonyId = newIds[s.assign.slice(4)];
+    const e = { id: uid(), type: s.type, colonyId, text: s.text || fmtMetric(s.metric, s.value), date, createdAt: new Date().toISOString(),
+      source: "voice", recordingId: rec.id, done: false };
+    if (s.type === "messwert") { e.metric = s.metric; e.value = s.value; }
+    if (s.type === "aufgabe") e.dueDate = s.dueDate || null;
+    await put("entries", e); ids.push(e.id);
+  }
+  rec.extraction.status = "done"; rec.extraction.appliedAt = new Date().toISOString(); rec.extraction.entryIds = ids;
+  await put("recordings", rec);
+  toast(`${ids.length} ${ids.length === 1 ? "Eintrag" : "Einträge"} übernommen`);
+  updateBadges();
+  renderDetail(rec.id);
+}
 async function renderDetail(id) {
   const r = await getOne("recordings", id);
-  setChrome("Notiz", true);
+  setChrome("Notiz", { back: true });
   if (!r) { app.innerHTML = `<div class="empty">Diese Notiz gibt es nicht mehr. <a href="#/">Zur Übersicht</a></div>`; return; }
+  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const pending = r.status === "pending" || busy.has(r.id);
+  const x = r.extraction?.status;
+  const analyzing = x === "pending" || busyX.has(r.id);
   let html = `<div class="muted small" style="margin-bottom:10px">${esc(fmtDate(r.createdAt))}, ${fmtTime(r.createdAt)} Uhr · ${fmtDur(r.duration)} min${r.fileName ? " · " + esc(r.fileName) : ""}</div>`;
+
   if (pending) {
     html += `<div class="banner"><span class="spinner"></span> Wird transkribiert…</div>`;
   } else if (r.status === "error") {
     html += `<div class="banner err"><strong>Transkription fehlgeschlagen.</strong><br>${esc(r.error)}
       <div class="row" style="margin-top:10px"><button class="btn-primary" id="retry">Erneut versuchen</button></div></div>`;
-  }
-  if (!pending && r.status !== "error") {
-    html += `<textarea id="text" aria-label="Transkript">${esc(r.text)}</textarea>
+  } else {
+    // Auswertung
+    if (analyzing) html += `<div class="banner"><span class="spinner"></span> Die KI wertet die Notiz aus…</div>`;
+    else if (x === "error") html += `<div class="banner err"><strong>Auswertung fehlgeschlagen.</strong><br>${esc(r.extraction.error)}
+        <div class="row" style="margin-top:10px"><button class="btn-primary" id="reanalyze">Erneut auswerten</button></div></div>`;
+    else if (!x) html += `<div class="banner">Diese Notiz wurde noch nicht ausgewertet.
+        <div class="row" style="margin-top:10px"><button class="btn-primary" id="reanalyze">Jetzt auswerten</button></div></div>`;
+    else if (x === "done") html += `<div class="banner ok">✓ ${r.extraction.entryIds?.length || 0} Einträge übernommen am ${fmtShort(localDate(new Date(r.extraction.appliedAt)))}. Du findest sie unter <a href="#/voelker">Völker</a>.</div>`;
+
+    if (x === "review" && !analyzing) {
+      const sugg = r.extraction.suggestions;
+      const unknownNames = [...new Set(sugg.filter(s => s.assign.startsWith("new:")).map(s => s.assign.slice(4)))];
+      html += `<section><h2 style="font-size:18px;margin:4px 0 4px">Vorschläge prüfen</h2>
+        <p class="muted small" style="margin:0 0 10px">Haken entfernen, um einen Vorschlag zu verwerfen. Text, Art, Volk und Termin kannst du direkt ändern.</p>`;
+      for (const n of unknownNames) {
+        html += `<div class="unknown"><strong>„${esc(n)}“</strong> ist kein bekanntes Volk. Was soll damit passieren?
+          <select class="f-unknown" data-name="${esc(n)}" style="margin-top:8px">
+            <option value="">– bitte wählen –</option>
+            <option value="create">Als neues Volk „${esc(n)}“ anlegen</option>
+            ${colonies.map(c => `<option value="${esc(c.id)}">Gehört zu ${esc(c.name)}</option>`).join("")}
+            <option value="${GENERAL}">${GENERAL_NAME}</option>
+          </select></div>`;
+      }
+      if (!sugg.length) html += `<div class="empty">Die KI hat in dieser Notiz nichts gefunden, das sich übernehmen lässt.</div>`;
+      // nach Volk gruppieren, Reihenfolge wie in der Notiz
+      const order = []; for (const s of sugg) if (!order.includes(s.assign)) order.push(s.assign);
+      for (const g of order) {
+        const label = g === GENERAL ? "📍 " + GENERAL_NAME : g.startsWith("new:") ? "🆕 " + esc(g.slice(4)) : "🐝 " + esc(colonyLabel(g, colonies));
+        html += `<div class="grp">${label}</div>`;
+        html += sugg.filter(s => s.assign === g).map(s => suggestionRow(s, colonies, unknownNames)).join("");
+      }
+      html += `<div class="row" style="margin:14px 0 22px">
+          <button class="btn-primary" id="apply">${sugg.length ? "Ausgewählte übernehmen" : "Als erledigt markieren"}</button>
+          <button id="reanalyze">Neu auswerten</button></div></section>`;
+    }
+
+    // Transkript
+    const collapsed = x === "review" && !analyzing;
+    html += `<details ${collapsed ? "" : "open"}><summary>Transkript${r.text !== r.rawText ? " (bearbeitet)" : ""}</summary>
+      <textarea id="text" class="transcript" aria-label="Transkript">${esc(r.text)}</textarea>
       <div class="row" style="margin-top:12px">
         <button class="btn-primary" id="save" disabled>Speichern</button>
         <button id="copy">Kopieren</button>
-        ${r.text !== r.rawText ? `<button id="restore">Original wiederherstellen</button>` : ""}
-        <span class="grow"></span>
-        <button class="btn-ghost btn-danger" id="delete">Löschen</button>
-      </div>`;
-  } else {
-    html += `<div class="row" style="margin-top:12px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Löschen</button></div>`;
+        ${r.text !== r.rawText ? `<button id="restore">Original</button>` : ""}
+        ${x === "done" ? `<button id="reanalyze2">Erneut auswerten</button>` : ""}
+      </div></details>`;
   }
+  html += `<div class="row" style="margin-top:20px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Notiz löschen</button></div>`;
   app.innerHTML = html;
 
+  if (x === "review" && !analyzing) { wireSuggestionRows(r); $("#apply")?.addEventListener("click", () => applyReview(r)); }
   const ta = $("#text"), saveBtn = $("#save");
   ta?.addEventListener("input", () => { saveBtn.disabled = ta.value === r.text; });
-  saveBtn?.addEventListener("click", async () => { r.text = ta.value; r.updatedAt = new Date().toISOString(); await put("recordings", r); toast("Gespeichert"); renderDetail(id); });
+  saveBtn?.addEventListener("click", async () => {
+    if (x === "review") readSuggestions(r);
+    r.text = ta.value; r.updatedAt = new Date().toISOString(); await put("recordings", r);
+    toast(x === "review" || x === "error" || !x ? "Gespeichert. Tippe auf „Neu auswerten“, um den geänderten Text zu analysieren." : "Gespeichert", 3500);
+    renderDetail(id);
+  });
   $("#copy")?.addEventListener("click", async () => { try { await navigator.clipboard.writeText(ta.value); toast("Kopiert"); } catch { ta.select(); toast("Text markiert, bitte manuell kopieren"); } });
   $("#restore")?.addEventListener("click", async () => { if (!confirm("Deine Korrekturen verwerfen und den Originaltext wiederherstellen?")) return; r.text = r.rawText; await put("recordings", r); renderDetail(id); });
-  $("#delete")?.addEventListener("click", async () => { if (!confirm("Diese Notiz endgültig löschen?")) return; await del("recordings", id); toast("Gelöscht"); location.hash = "#/"; });
+  const reanalyze = async () => {
+    if (x === "review" && !confirm("Die aktuellen Vorschläge und deine Änderungen daran werden ersetzt. Fortfahren?")) return;
+    const ok = await runExtraction(r);
+    toast(ok ? "Neue Vorschläge sind da." : "Auswertung fehlgeschlagen.");
+    renderDetail(id);
+  };
+  $("#reanalyze")?.addEventListener("click", reanalyze);
+  $("#reanalyze2")?.addEventListener("click", () => { if (confirm("Die Notiz wurde schon übernommen. Eine erneute Auswertung kann doppelte Einträge erzeugen. Trotzdem fortfahren?")) reanalyze(); });
+  $("#delete")?.addEventListener("click", async () => {
+    if (!confirm("Diese Notiz endgültig löschen? Bereits übernommene Einträge bleiben erhalten.")) return;
+    await del("recordings", id); toast("Gelöscht"); updateBadges(); location.hash = "#/";
+  });
   $("#retry")?.addEventListener("click", async () => {
     busy.add(id); renderDetail(id);
     const ok = await processRecording(r); busy.delete(id);
-    toast(ok ? "Transkription fertig" : "Wieder fehlgeschlagen"); renderDetail(id);
+    if (ok && r.text) { toast("Transkription fertig, wird ausgewertet…"); await runExtraction(r); }
+    else toast(ok ? "Es wurde kein Text erkannt." : "Wieder fehlgeschlagen");
+    renderDetail(id);
   });
 }
 
+/* ---------- Einträge (gemeinsam genutzt) ---------- */
+function entryRow(e, colonies, showColony = true) {
+  const t = TYPES[e.type] || TYPES.beobachtung;
+  const meta = [];
+  if (showColony) meta.push(esc(colonyLabel(e.colonyId, colonies)));
+  if (e.type === "aufgabe" && !e.done && e.dueDate) meta.push(dueLabel(e.dueDate));
+  if (e.type === "aufgabe" && e.done) meta.push("erledigt");
+  if (e.type === "frage" && e.done) meta.push("beantwortet");
+  if (e.type === "frage" && e.answer) meta.push("Antwort: " + esc(e.answer.slice(0, 80)) + (e.answer.length > 80 ? "…" : ""));
+  const check = (e.type === "aufgabe") ? `<input type="checkbox" data-toggle="${esc(e.id)}" ${e.done ? "checked" : ""} aria-label="Erledigt">` : `<span class="ico">${t.icon}</span>`;
+  return `<div class="entry ${e.done ? "done" : ""}">${check}
+    <a href="#/eintrag/${encodeURIComponent(e.id)}"><div class="txt">${esc(e.text)}</div>${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}</a></div>`;
+}
+function wireToggles(rerender) {
+  $$("[data-toggle]").forEach(cb => cb.addEventListener("change", async () => {
+    const e = await getOne("entries", cb.dataset.toggle); if (!e) return;
+    e.done = cb.checked; e.doneAt = cb.checked ? new Date().toISOString() : null;
+    await put("entries", e);
+    toast(cb.checked ? "Erledigt ✓" : "Wieder offen");
+    updateBadges(); setTimeout(rerender, 350);
+  }));
+}
+function currentValues(entries) {
+  const vals = {};
+  for (const e of entries.filter(e => e.type === "messwert" && e.metric).sort(sortEntries)) if (!vals[e.metric]) vals[e.metric] = e;
+  return vals;
+}
+
+/* ---------- Ansicht: Völker ---------- */
+async function renderColonies() {
+  setChrome("Völker", { tab: "voelker" });
+  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const entries = await getAll("entries");
+  const card = (id, name, sub) => {
+    const es = entries.filter(e => (e.colonyId || null) === id || (id === null && e.colonyId && !colonies.some(c => c.id === e.colonyId)));
+    const v = currentValues(es);
+    const openT = es.filter(e => e.type === "aufgabe" && !e.done).length;
+    const openQ = es.filter(e => e.type === "frage" && !e.done).length;
+    const last = es.sort(sortEntries)[0];
+    const vals = Object.keys(METRICS).filter(m => v[m]).map(m => fmtMetric(m, v[m].value));
+    const info = [openT ? `${openT} offene Aufgabe${openT === 1 ? "" : "n"}` : "", openQ ? `${openQ} Frage${openQ === 1 ? "" : "n"}` : ""].filter(Boolean);
+    return `<a class="card colony-card" href="#/volk/${encodeURIComponent(id || GENERAL)}">
+      <h2>${esc(name)} <span class="muted">›</span></h2>
+      ${sub ? `<div class="muted small">${esc(sub)}</div>` : ""}
+      ${vals.length ? `<div class="small" style="margin-top:6px">${esc(vals.join(" · "))}</div>` : ""}
+      <div class="muted small" style="margin-top:4px">${info.length ? esc(info.join(" · ")) + " · " : ""}${last ? "zuletzt " + fmtShort(last.date) : "noch keine Einträge"}</div></a>`;
+  };
+  let html = colonies.map(c => card(c.id, c.name, c.aliases?.length ? "auch: " + c.aliases.join(", ") : "")).join("");
+  html += card(null, GENERAL_NAME, "Alles ohne Bezug zu einem bestimmten Volk");
+  if (!colonies.length) html = `<div class="banner">Noch keine Völker eingetragen. <a href="#/einstellungen">Völker anlegen</a></div>` + html;
+  else html += `<p class="muted small" style="text-align:center"><a href="#/einstellungen">Völker verwalten</a></p>`;
+  app.innerHTML = html;
+}
+let colonyFilter = "alle";
+async function renderColony(id) {
+  const colonies = await getAll("colonies");
+  const isGeneral = id === GENERAL;
+  const colony = colonies.find(c => c.id === id);
+  if (!isGeneral && !colony) { setChrome("Volk", { back: true }); app.innerHTML = `<div class="empty">Dieses Volk gibt es nicht mehr.</div>`; return; }
+  setChrome(isGeneral ? "Allgemein" : colony.name, { back: true });
+  const all = (await getAll("entries")).filter(e => isGeneral ? (!e.colonyId || !colonies.some(c => c.id === e.colonyId)) : e.colonyId === id).sort(sortEntries);
+  const v = currentValues(all);
+  let html = "";
+  if (!isGeneral) {
+    html += `<section class="card"><div class="values">${Object.entries(METRICS).map(([m, def]) => {
+      const e = v[m];
+      return `<div class="val"><span>${def.short}</span><b>${e ? esc(m === "koenigin" ? e.value : fmtNum(e.value) + (def.unit ? " " + def.unit : "")) : "–"}</b><span>${e ? "am " + fmtShort(e.date) : "noch kein Wert"}</span></div>`;
+    }).join("")}</div></section>`;
+  }
+  html += `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu/${encodeURIComponent(id)}">+ Eintrag</a></div>`;
+  const filters = [["alle", "Alle"], ...Object.entries(TYPES).map(([k, t]) => [k, t.plural])];
+  html += `<div class="filters">${filters.map(([k, l]) => `<button data-f="${k}" class="${colonyFilter === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const list = colonyFilter === "alle" ? all : all.filter(e => e.type === colonyFilter);
+  if (!list.length) html += `<div class="empty">Noch keine Einträge${colonyFilter !== "alle" ? " dieser Art" : ""}.</div>`;
+  let lastDay = "";
+  for (const e of list) {
+    const day = dayLabel(e.date || e.createdAt);
+    if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
+    html += entryRow(e, colonies, false);
+  }
+  app.innerHTML = html;
+  $$("[data-f]").forEach(b => b.addEventListener("click", () => { colonyFilter = b.dataset.f; renderColony(id); }));
+  wireToggles(() => renderColony(id));
+}
+
+/* ---------- Ansicht: Aufgaben & Fragen ---------- */
+async function renderTasks() {
+  setChrome("Aufgaben", { tab: "aufgaben" });
+  const colonies = await getAll("colonies");
+  const tasks = (await getAll("entries")).filter(e => e.type === "aufgabe");
+  const open = tasks.filter(e => !e.done);
+  const t = todayStr();
+  const wk = new Date(); wk.setDate(wk.getDate() + 7); const week = localDate(wk);
+  const byDue = (a, b) => (a.dueDate || "").localeCompare(b.dueDate || "") || sortEntries(a, b);
+  const groups = [
+    ["Überfällig & heute", open.filter(e => e.dueDate && e.dueDate <= t).sort(byDue)],
+    ["Nächste 7 Tage", open.filter(e => e.dueDate && e.dueDate > t && e.dueDate <= week).sort(byDue)],
+    ["Später", open.filter(e => e.dueDate && e.dueDate > week).sort(byDue)],
+    ["Ohne Termin", open.filter(e => !e.dueDate).sort(sortEntries)],
+  ];
+  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//aufgabe">+ Aufgabe</a></div>`;
+  if (!open.length) html += `<div class="empty">Keine offenen Aufgaben. 🎉</div>`;
+  for (const [label, list] of groups) if (list.length) html += `<div class="day">${label}</div>` + list.map(e => entryRow(e, colonies)).join("");
+  const done = tasks.filter(e => e.done).sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || "")).slice(0, 30);
+  if (done.length) html += `<details style="margin-top:18px"><summary>Erledigt (${done.length})</summary>${done.map(e => entryRow(e, colonies)).join("")}</details>`;
+  app.innerHTML = html;
+  wireToggles(renderTasks);
+}
+async function renderQuestions() {
+  setChrome("Fragen", { tab: "fragen" });
+  const colonies = await getAll("colonies");
+  const qs = (await getAll("entries")).filter(e => e.type === "frage").sort(sortEntries);
+  const open = qs.filter(e => !e.done), done = qs.filter(e => e.done);
+  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//frage">+ Frage</a></div>
+    <p class="muted small">Tippe auf eine Frage, um eine Antwort zu notieren. Antwortvorschläge aus der Imker-Literatur folgen in einem späteren Schritt.</p>`;
+  if (!open.length) html += `<div class="empty">Keine offenen Fragen.</div>`;
+  else html += `<div class="day">Offen</div>` + open.map(e => entryRow(e, colonies)).join("");
+  if (done.length) html += `<details style="margin-top:18px"><summary>Beantwortet (${done.length})</summary>${done.map(e => entryRow(e, colonies)).join("")}</details>`;
+  app.innerHTML = html;
+}
+
+/* ---------- Ansicht: Eintrag anlegen / bearbeiten ---------- */
+async function renderEntryForm(existing, preset = {}) {
+  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const isNew = !existing;
+  const e = existing || { type: TYPES[preset.type] ? preset.type : "beobachtung", colonyId: preset.colony && preset.colony !== GENERAL ? preset.colony : null,
+    text: "", date: todayStr(), done: false, metric: "varroa", value: null, dueDate: null, answer: "" };
+  setChrome(isNew ? "Neuer Eintrag" : TYPES[e.type].label, { back: true });
+  const rec = e.recordingId ? await getOne("recordings", e.recordingId) : null;
+  app.innerHTML = `<section class="card">
+    <label for="eType" style="margin-top:0">Art</label>
+    <select id="eType">${typeOptions(e.type)}</select>
+    <label for="eColony">Volk</label>
+    <select id="eColony">${colonies.map(c => `<option value="${esc(c.id)}" ${c.id === e.colonyId ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("")}
+      <option value="" ${!e.colonyId || !colonies.some(c => c.id === e.colonyId) ? "selected" : ""}>📍 ${GENERAL_NAME}</option></select>
+    <label for="eText">Text</label>
+    <textarea id="eText" rows="3" placeholder="z. B. Königin gesehen, Brut geschlossen">${esc(e.text)}</textarea>
+    <div id="rowMetric" class="${e.type === "messwert" ? "" : "hidden"}">
+      <label>Messwert</label>
+      <div class="sg-sub"><select id="eMetric">${metricOptions(e.metric || "varroa")}</select>
+      <input type="number" id="eValue" inputmode="decimal" step="any" value="${e.value ?? ""}" placeholder="Wert"></div>
+    </div>
+    <div id="rowDue" class="${e.type === "aufgabe" ? "" : "hidden"}">
+      <label for="eDue">Fällig am</label><input type="date" id="eDue" value="${esc(e.dueDate || "")}">
+    </div>
+    <div id="rowAnswer" class="${e.type === "frage" ? "" : "hidden"}">
+      <label for="eAnswer">Antwort / Notiz</label><textarea id="eAnswer" rows="3">${esc(e.answer || "")}</textarea>
+    </div>
+    <label for="eDate">Datum</label><input type="date" id="eDate" value="${esc(e.date || todayStr())}">
+    <div id="rowDone" class="row ${e.type === "aufgabe" || e.type === "frage" ? "" : "hidden"}" style="margin-top:14px">
+      <input type="checkbox" id="eDone" ${e.done ? "checked" : ""}><label for="eDone" id="eDoneLbl" style="margin:0;font-weight:400">${e.type === "frage" ? "Beantwortet" : "Erledigt"}</label>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn-primary" id="eSave">${isNew ? "Hinzufügen" : "Speichern"}</button>
+      <span class="grow"></span>
+      ${isNew ? "" : `<button class="btn-ghost btn-danger" id="eDelete">Löschen</button>`}
+    </div>
+    ${rec ? `<p class="muted small" style="margin:14px 0 0">Aus der <a href="#/aufnahme/${encodeURIComponent(rec.id)}">Sprachnotiz vom ${fmtShort(localDate(new Date(rec.createdAt)))}</a></p>` : ""}
+  </section>`;
+  const typeSel = $("#eType");
+  typeSel.addEventListener("change", () => {
+    const t = typeSel.value;
+    $("#rowMetric").classList.toggle("hidden", t !== "messwert");
+    $("#rowDue").classList.toggle("hidden", t !== "aufgabe");
+    $("#rowAnswer").classList.toggle("hidden", t !== "frage");
+    $("#rowDone").classList.toggle("hidden", !(t === "aufgabe" || t === "frage"));
+    $("#eDoneLbl").textContent = t === "frage" ? "Beantwortet" : "Erledigt";
+  });
+  if (isNew) $("#eText").focus();
+  $("#eSave").addEventListener("click", async () => {
+    const t = typeSel.value;
+    const out = { ...(existing || { id: uid(), createdAt: new Date().toISOString(), source: "manual" }) };
+    out.type = t; out.colonyId = $("#eColony").value || null; out.text = $("#eText").value.trim();
+    out.date = $("#eDate").value || todayStr();
+    delete out.metric; delete out.value; delete out.dueDate;
+    if (t === "messwert") {
+      const v = parseFloat(String($("#eValue").value).replace(",", "."));
+      if (!isFinite(v)) { toast("Bitte einen Zahlenwert eintragen."); return; }
+      out.metric = $("#eMetric").value; out.value = v;
+      if (!out.text) out.text = fmtMetric(out.metric, v);
+    }
+    if (!out.text) { toast("Bitte einen Text eingeben."); return; }
+    if (t === "aufgabe") out.dueDate = $("#eDue").value || null;
+    out.answer = t === "frage" ? $("#eAnswer").value.trim() : (out.answer || "");
+    const wasDone = !!out.done;
+    out.done = (t === "aufgabe" || t === "frage") ? $("#eDone").checked : false;
+    if (out.done && !wasDone) out.doneAt = new Date().toISOString();
+    out.updatedAt = new Date().toISOString();
+    await put("entries", out);
+    toast(isNew ? "Hinzugefügt" : "Gespeichert");
+    updateBadges();
+    if (navDepth > 0) history.back(); else location.hash = "#/volk/" + encodeURIComponent(out.colonyId || GENERAL);
+  });
+  $("#eDelete")?.addEventListener("click", async () => {
+    if (!confirm("Diesen Eintrag löschen?")) return;
+    await del("entries", existing.id); toast("Gelöscht"); updateBadges();
+    if (navDepth > 0) history.back(); else location.hash = "#/voelker";
+  });
+}
+
+/* ---------- Ansicht: Einstellungen ---------- */
 async function renderSettings() {
-  setChrome("Einstellungen", true);
+  setChrome("Einstellungen", { back: true });
   const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const model = settings.get("model", "whisper-large-v3");
+  const chat = settings.get("chatModel");
   let persisted = null;
   try { persisted = await navigator.storage?.persisted?.(); } catch {}
   app.innerHTML = `
     <section class="card">
-      <h2>Transkription (Groq)</h2>
+      <h2>Groq (Spracherkennung & KI)</h2>
       <p class="muted small" style="margin:0">Kostenloser Schlüssel von <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Er wird nur auf diesem Gerät gespeichert.</p>
       <label for="key">API-Schlüssel</label>
       <div class="row"><input class="grow" type="password" id="key" value="${esc(settings.get("groqKey"))}" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:auto">
         <button id="showKey" class="icon-btn" aria-label="Schlüssel anzeigen">&#128065;</button></div>
-      <label for="model">Modell</label>
+      <label for="model">Spracherkennung</label>
       <select id="model">
         <option value="whisper-large-v3" ${model === "whisper-large-v3" ? "selected" : ""}>Genau (empfohlen)</option>
         <option value="whisper-large-v3-turbo" ${model === "whisper-large-v3-turbo" ? "selected" : ""}>Schnell</option>
       </select>
+      <label for="chatModel">KI für die Auswertung</label>
+      <select id="chatModel"><option value="">Automatisch${settings.get("autoModel") ? " (" + esc(settings.get("autoModel")) + ")" : ""}</option>
+        ${chat ? `<option value="${esc(chat)}" selected>${esc(chat)}</option>` : ""}</select>
       <div class="row" style="margin-top:14px"><button class="btn-primary" id="saveKey">Speichern</button><button id="testKey">Verbindung testen</button></div>
     </section>
 
     <section class="card">
       <h2>Meine Völker</h2>
-      <p class="muted small" style="margin:0 0 6px">Die Namen helfen der Spracherkennung bei der richtigen Schreibweise. In einem späteren Schritt ordnet die App Notizen damit automatisch den Völkern zu.</p>
+      <p class="muted small" style="margin:0 0 6px">Mit den Namen und Spitznamen erkennt die App, über welches Volk du sprichst.</p>
       <div id="colonies">${colonies.length ? colonies.map(c => `
         <div class="colony"><div><strong>${esc(c.name)}</strong>${c.aliases?.length ? `<div class="muted small">auch: ${esc(c.aliases.join(", "))}</div>` : ""}</div>
           <div class="row"><button class="icon-btn" data-edit="${esc(c.id)}" aria-label="Bearbeiten">&#9998;</button><button class="icon-btn btn-danger" data-del="${esc(c.id)}" aria-label="Löschen">&#10005;</button></div></div>`).join("")
@@ -573,20 +1132,26 @@ async function renderSettings() {
 
     <section class="card">
       <h2>Datensicherung</h2>
-      <p class="muted small" style="margin:0 0 10px">Alle Notizen liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. nach OneDrive.${persisted === false ? " Dauerhafte Speicherung ist nicht bestätigt. Am iPhone hilft es, die App zum Home-Bildschirm hinzuzufügen." : ""}</p>
+      <p class="muted small" style="margin:0 0 10px">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. nach OneDrive.${persisted === false ? " Dauerhafte Speicherung ist nicht bestätigt. Am iPhone hilft es, die App vom Home-Bildschirm aus zu öffnen." : ""}</p>
       <div class="row"><button id="export">Sicherung exportieren</button><button id="import">Sicherung importieren</button></div>
       <input type="file" id="importFile" accept="application/json,.json" class="hidden">
     </section>
     <p class="muted small" style="text-align:center">Imkerbuch ${APP_VERSION}</p>`;
 
+  if (groqKey()) listChatModels().then(ids => {
+    const sel = $("#chatModel"); if (!sel) return;
+    sel.innerHTML = `<option value="">Automatisch${settings.get("autoModel") ? " (" + esc(settings.get("autoModel")) + ")" : ""}</option>` +
+      ids.map(id => `<option value="${esc(id)}" ${id === chat ? "selected" : ""}>${esc(id)}</option>`).join("");
+  }).catch(() => {});
   $("#showKey").addEventListener("click", () => { const k = $("#key"); k.type = k.type === "password" ? "text" : "password"; });
-  $("#saveKey").addEventListener("click", () => { settings.set("groqKey", $("#key").value.trim()); settings.set("model", $("#model").value); toast("Gespeichert"); });
+  const saveAll = () => { settings.set("groqKey", $("#key").value.trim()); settings.set("model", $("#model").value); settings.set("chatModel", $("#chatModel").value); };
+  $("#saveKey").addEventListener("click", () => { saveAll(); toast("Gespeichert"); });
   $("#testKey").addEventListener("click", async (e) => {
     const key = $("#key").value.trim(); if (!key) { toast("Bitte zuerst einen Schlüssel eintragen"); return; }
     e.target.disabled = true; e.target.innerHTML = `<span class="spinner"></span> Teste…`;
     try {
       const res = await fetch(GROQ_URL + "/models", { headers: { Authorization: "Bearer " + key } });
-      if (res.ok) { settings.set("groqKey", key); settings.set("model", $("#model").value); toast("Verbindung klappt, Schlüssel gespeichert ✓"); }
+      if (res.ok) { saveAll(); settings.set("autoModelAt", "0"); const m = await chatModel(true); toast("Verbindung klappt ✓ KI: " + m, 3500); }
       else toast(res.status === 401 ? "Schlüssel ungültig" : "Fehler " + res.status, 3500);
     } catch { toast("Keine Verbindung zu Groq", 3500); }
     e.target.disabled = false; e.target.textContent = "Verbindung testen";
@@ -602,16 +1167,16 @@ async function renderSettings() {
     await put("colonies", { ...(existing || {}), id, name, aliases, createdAt: existing?.createdAt || new Date().toISOString() });
     toast(existing ? "Volk aktualisiert" : "Volk hinzugefügt"); renderSettings();
   });
-  app.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", async () => {
+  $$("[data-edit]").forEach(b => b.addEventListener("click", async () => {
     const c = await getOne("colonies", b.dataset.edit);
     $("#cId").value = c.id; $("#cName").value = c.name; $("#cAlias").value = (c.aliases || []).join(", ");
     $("#cSave").textContent = "Änderung speichern"; $("#cCancel").classList.remove("hidden"); $("#cName").focus();
   }));
-  app.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
-    if (!confirm("Dieses Volk aus der Liste entfernen?")) return;
+  $$("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    const n = (await getAll("entries")).filter(e => e.colonyId === b.dataset.del).length;
+    if (!confirm(n ? `Dieses Volk entfernen? Seine ${n} Einträge landen dann unter „${GENERAL_NAME}“.` : "Dieses Volk aus der Liste entfernen?")) return;
     await del("colonies", b.dataset.del); renderSettings();
   }));
-
   $("#export").addEventListener("click", exportData);
   $("#import").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importData);
@@ -620,13 +1185,11 @@ async function renderSettings() {
 /* ---------- Sicherung ---------- */
 async function exportData() {
   const recordings = (await getAll("recordings")).map(({ audio, ...r }) => r);
-  const colonies = await getAll("colonies");
-  const data = { app: "imkerbuch", version: 1, exportedAt: new Date().toISOString(), colonies, recordings };
-  const name = `imkerbuch-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
+  const data = { app: "imkerbuch", version: 2, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), recordings };
+  const name = `imkerbuch-sicherung-${todayStr()}.json`;
   const file = new File([JSON.stringify(data, null, 2)], name, { type: "application/json" });
-  try {
-    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
-  } catch (e) { if (e.name === "AbortError") return; }
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } }
+  catch (e) { if (e.name === "AbortError") return; }
   const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
@@ -635,34 +1198,44 @@ async function importData(e) {
   try {
     const data = JSON.parse(await f.text());
     if (data.app !== "imkerbuch") throw new Error();
-    let n = 0;
+    let n = 0, m = 0;
     for (const c of data.colonies || []) await put("colonies", c);
-    for (const r of data.recordings || []) { if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; } }
-    toast(`${n} Notizen importiert`); renderSettings();
+    for (const r of data.recordings || []) if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; }
+    for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
+    toast(`${n} Notizen und ${m} Einträge importiert`); renderSettings(); updateBadges();
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
 }
 
 /* ---------- Start ---------- */
-function render() {
+async function render() {
   const r = route();
-  if (r.view === "detail") renderDetail(r.id);
-  else if (r.view === "settings") renderSettings();
-  else renderHome();
   window.scrollTo(0, 0);
+  switch (r.view) {
+    case "detail": return renderDetail(r.id);
+    case "settings": return renderSettings();
+    case "colonies": return renderColonies();
+    case "colony": return renderColony(r.id);
+    case "tasks": return renderTasks();
+    case "questions": return renderQuestions();
+    case "entry": { const e = await getOne("entries", r.id); if (!e) { setChrome("Eintrag", { back: true }); app.innerHTML = `<div class="empty">Diesen Eintrag gibt es nicht mehr.</div>`; return; } return renderEntryForm(e); }
+    case "new": return renderEntryForm(null, { colony: r.colony, type: r.type });
+    default: return renderHome();
+  }
 }
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { navDepth++; render(); });
 window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {
   try { await navigator.storage?.persist?.(); } catch {}
-  // Aufnahmen, die beim letzten Mal mitten in der Übertragung hingen, als fehlgeschlagen markieren
   for (const r of await getAll("recordings")) {
-    if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; await put("recordings", r); }
+    let changed = false;
+    if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; changed = true; }
+    if (r.extraction?.status === "pending") { r.extraction = { status: "error", error: "Die Auswertung wurde unterbrochen." }; changed = true; }
+    if (changed) await put("recordings", r);
   }
   render();
-  if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
-  }
+  updateBadges();
+  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
 </body>
