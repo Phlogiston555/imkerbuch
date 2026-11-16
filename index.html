@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Imkerbuch</title>
+<meta name="description" content="Sprachnotizen für die Imkerei aufnehmen und transkribieren">
+<meta name="theme-color" content="#f5a524">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Imkerbuch">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+  :root {
+    --bg: #fbf8f1;
+    --surface: #ffffff;
+    --surface-2: #f4efe3;
+    --text: #2b2418;
+    --muted: #7a6f5c;
+    --border: #e6dcc6;
+    --accent: #e8951a;
+    --accent-strong: #c47706;
+    --accent-text: #ffffff;
+    --danger: #c0392b;
+    --ok: #2e7d4f;
+    --warn: #b7791f;
+    --rec: #d63a2f;
+    --shadow: 0 1px 2px rgba(60,40,0,.06), 0 4px 16px rgba(60,40,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f;
+      --surface: #221e17;
+      --surface-2: #2c271e;
+      --text: #f2ead9;
+      --muted: #a89d87;
+      --border: #3a3326;
+      --accent: #f5a524;
+      --accent-strong: #ffb84a;
+      --accent-text: #1d1503;
+      --danger: #ef6b5e;
+      --ok: #5fc58a;
+      --warn: #e7b14a;
+      --rec: #ff5a4f;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f; --surface: #221e17; --surface-2: #2c271e; --text: #f2ead9; --muted: #a89d87;
+    --border: #3a3326; --accent: #f5a524; --accent-strong: #ffb84a; --accent-text: #1d1503;
+    --danger: #ef6b5e; --ok: #5fc58a; --warn: #e7b14a; --rec: #ff5a4f; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 19px; margin: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
+  header h1 img { width: 26px; height: 26px; border-radius: 6px; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  a { color: var(--accent-strong); }
+  button, .btn {
+    font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 12px; padding: 10px 16px; cursor: pointer; min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .btn-danger { color: var(--danger); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .icon-btn { padding: 8px 10px; min-width: 44px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px;
+  }
+  .card h2 { font-size: 17px; margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; }
+  input[type=text], input[type=password], input[type=search], textarea, select {
+    font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  textarea { min-height: 45vh; resize: vertical; line-height: 1.55; }
+  label { display: block; font-weight: 600; margin: 12px 0 6px; }
+  .banner {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 1px solid var(--accent);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .banner.err { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border-color: var(--danger); }
+
+  /* Recorder */
+  .recorder { text-align: center; padding: 22px 16px; }
+  .rec-btn {
+    width: 120px; height: 120px; border-radius: 50%; border: none; margin: 4px auto 12px;
+    background: var(--rec); color: #fff; font-weight: 700; font-size: 15px;
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--rec) 18%, transparent);
+    display: flex; flex-direction: column;
+  }
+  .rec-btn svg { width: 40px; height: 40px; margin-bottom: 4px; }
+  .timer { font-size: 44px; font-variant-numeric: tabular-nums; font-weight: 600; margin: 6px 0 2px; }
+  .pulse { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--rec); margin-right: 8px; animation: pulse 1.2s infinite; }
+  .paused .pulse { animation: none; background: var(--muted); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  .level { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: 12px auto 16px; max-width: 280px; }
+  .level > div { height: 100%; width: 0; background: var(--accent); transition: width .08s; }
+  .rec-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* List */
+  .day { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 20px 4px 8px; font-weight: 600; }
+  .item {
+    display: block; text-decoration: none; color: inherit; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .item:active { background: var(--surface-2); }
+  .item-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+  .item-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.err { color: var(--danger); }
+  .empty { text-align: center; padding: 30px 10px; color: var(--muted); }
+  mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }
+
+  .colony { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .colony:last-child { border-bottom: none; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 15px;
+    z-index: 100; max-width: calc(100% - 32px); box-shadow: 0 4px 20px rgba(0,0,0,.2);
+  }
+  .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <a id="backBtn" class="btn btn-ghost icon-btn hidden" href="#/" aria-label="Zurück">&#8592;</a>
+  <h1><img src="icon-192.png" alt=""> <span id="title">Imkerbuch</span></h1>
+  <a id="settingsBtn" class="btn btn-ghost icon-btn" href="#/einstellungen" aria-label="Einstellungen">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </a>
+</header>
+<main id="app"></main>
+<input type="file" id="fileInput" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.mp4" class="hidden">
+
+<script>
+"use strict";
+const APP_VERSION = "1.0.0";
+const GROQ_URL = "https://api.groq.com/openai/v1";
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Grenze des kostenlosen Groq-Tarifs
+const BEE_TERMS = "Königin, Weisel, Weiselzelle, Schwarmzelle, Spielnäpfchen, Stifte, Brutnest, verdeckelte Brut, offene Brut, " +
+  "Drohnenbrut, Drohnenrahmen, Baurahmen, Zarge, Honigraum, Absperrgitter, Mittelwand, Futterkranz, Futterwabe, Varroa, " +
+  "Varroafall, Windel, Ameisensäure, Oxalsäure, Ableger, Schwarmstimmung, Sanftmut, Wabensitz, Stockwaage, Trachtlücke, Pollen, Nektar";
+
+/* ---------- Speicher (IndexedDB) ---------- */
+const DB_NAME = "imkerbuch";
+let dbPromise;
+function db() {
+  if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("recordings")) d.createObjectStore("recordings", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("colonies")) d.createObjectStore("colonies", { keyPath: "id" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+async function tx(store, mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction(store, mode);
+    const s = t.objectStore(store);
+    let result;
+    const r = fn(s);
+    if (r) r.onsuccess = () => { result = r.result; };
+    t.oncomplete = () => resolve(result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+const getAll = (store) => tx(store, "readonly", s => s.getAll());
+const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
+const put = (store, obj) => tx(store, "readwrite", s => s.put(obj));
+const del = (store, id) => tx(store, "readwrite", s => s.delete(id));
+
+const settings = {
+  get(k, def = "") { try { const v = localStorage.getItem("imkerbuch." + k); return v === null ? def : v; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem("imkerbuch." + k, v); } catch {} }
+};
+
+/* ---------- Hilfsfunktionen ---------- */
+const $ = (sel, root = document) => root.querySelector(sel);
+const app = $("#app");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const fmtDur = (sec) => { sec = Math.round(sec || 0); const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${String(s).padStart(2, "0")}`; };
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+function dayLabel(iso) {
+  const d = new Date(iso), t = new Date();
+  const same = (a, b) => a.toDateString() === b.toDateString();
+  const y = new Date(); y.setDate(t.getDate() - 1);
+  if (same(d, t)) return "Heute";
+  if (same(d, y)) return "Gestern";
+  return fmtDate(iso);
+}
+let toastTimer;
+function toast(msg, ms = 2600) {
+  document.querySelector(".toast")?.remove();
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = msg; document.body.appendChild(el);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), ms);
+}
+
+/* ---------- Transkription (Groq Whisper) ---------- */
+async function buildPrompt() {
+  const colonies = await getAll("colonies");
+  const names = colonies.flatMap(c => [c.name, ...(c.aliases || [])]).filter(Boolean);
+  let p = "Notizen zur Durchsicht von Bienenvölkern in einer Hobby-Imkerei.";
+  if (names.length) p += " Völker: " + names.join(", ") + ".";
+  p += " Begriffe: " + BEE_TERMS + ".";
+  return p.slice(0, 850); // Whisper berücksichtigt nur den Anfang des Hinweistexts
+}
+function extFor(type, fallbackName) {
+  if (fallbackName && /\.[a-z0-9]{2,5}$/i.test(fallbackName)) return fallbackName;
+  if (/mp4|m4a|aac/.test(type)) return "aufnahme.m4a";
+  if (/webm/.test(type)) return "aufnahme.webm";
+  if (/ogg/.test(type)) return "aufnahme.ogg";
+  if (/wav/.test(type)) return "aufnahme.wav";
+  if (/mpeg|mp3/.test(type)) return "aufnahme.mp3";
+  return "aufnahme.m4a";
+}
+async function transcribe(blob, fileName) {
+  const key = settings.get("groqKey").trim();
+  if (!key) throw new Error("Kein Groq-Schlüssel hinterlegt. Bitte in den Einstellungen eintragen.");
+  if (blob.size > MAX_UPLOAD_BYTES) throw new Error(`Die Datei ist ${(blob.size / 1048576).toFixed(1)} MB groß. Erlaubt sind höchstens 25 MB.`);
+  const fd = new FormData();
+  fd.append("file", blob, extFor(blob.type || "", fileName));
+  fd.append("model", settings.get("model", "whisper-large-v3"));
+  fd.append("language", "de");
+  fd.append("temperature", "0");
+  fd.append("response_format", "json");
+  fd.append("prompt", await buildPrompt());
+  let res;
+  try {
+    res = await fetch(GROQ_URL + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + key }, body: fd });
+  } catch (e) {
+    throw new Error("Keine Verbindung zum Transkriptionsdienst. Die Aufnahme ist gespeichert und kann später erneut gesendet werden.");
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json())?.error?.message || ""; } catch {}
+    if (res.status === 401) throw new Error("Der Groq-Schlüssel ist ungültig. Bitte in den Einstellungen prüfen.");
+    if (res.status === 429) throw new Error("Das kostenlose Tageslimit ist erreicht. Die Aufnahme ist gespeichert, bitte später erneut versuchen. " + detail);
+    if (res.status === 413) throw new Error("Die Aufnahme ist zu groß für den kostenlosen Tarif.");
+    throw new Error(`Fehler ${res.status} beim Transkribieren. ${detail}`);
+  }
+  const data = await res.json();
+  return (data.text || "").trim();
+}
+
+async function processRecording(rec) {
+  rec.status = "pending"; rec.error = "";
+  await put("recordings", rec);
+  try {
+    const text = await transcribe(rec.audio, rec.fileName);
+    rec.text = text; rec.rawText = text; rec.status = "done"; rec.error = "";
+    delete rec.audio; // Audio wird nach erfolgreicher Transkription nicht aufbewahrt
+    await put("recordings", rec);
+    return true;
+  } catch (e) {
+    rec.status = "error"; rec.error = e.message;
+    await put("recordings", rec);
+    return false;
+  }
+}
+
+/* ---------- Aufnahme ---------- */
+const recorder = { mr: null, stream: null, chunks: [], start: 0, elapsed: 0, paused: false, timer: null, wake: null, audioCtx: null, raf: null };
+
+function pickMime() {
+  const opts = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  return opts.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+}
+async function keepAwake() {
+  try { if ("wakeLock" in navigator) recorder.wake = await navigator.wakeLock.request("screen"); } catch {}
+}
+function releaseAwake() { try { recorder.wake?.release(); } catch {} recorder.wake = null; }
+
+async function startRecording() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    toast("Dieses Gerät oder dieser Browser unterstützt keine Aufnahme. Bitte eine Datei hochladen.", 4000); return;
+  }
+  try {
+    recorder.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    toast("Kein Zugriff aufs Mikrofon. Bitte in den iPhone-Einstellungen erlauben.", 4500); return;
+  }
+  const mime = pickMime();
+  const opts = { audioBitsPerSecond: 64000 };
+  if (mime) opts.mimeType = mime;
+  recorder.mr = new MediaRecorder(recorder.stream, opts);
+  recorder.chunks = [];
+  recorder.mr.ondataavailable = (e) => { if (e.data && e.data.size) recorder.chunks.push(e.data); };
+  recorder.mr.start(1000);
+  recorder.start = Date.now(); recorder.elapsed = 0; recorder.paused = false;
+  await keepAwake();
+  startLevelMeter();
+  recorder.timer = setInterval(updateTimer, 250);
+  renderHome();
+}
+function currentElapsed() { return recorder.elapsed + (recorder.paused ? 0 : (Date.now() - recorder.start) / 1000); }
+function updateTimer() { const el = $("#timer"); if (el) el.textContent = fmtDur(currentElapsed()); }
+function togglePause() {
+  if (!recorder.mr) return;
+  if (recorder.paused) { recorder.mr.resume(); recorder.start = Date.now(); recorder.paused = false; }
+  else { recorder.mr.pause(); recorder.elapsed += (Date.now() - recorder.start) / 1000; recorder.paused = true; }
+  renderHome();
+}
+function startLevelMeter() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    recorder.audioCtx = new Ctx();
+    const src = recorder.audioCtx.createMediaStreamSource(recorder.stream);
+    const an = recorder.audioCtx.createAnalyser(); an.fftSize = 512; src.connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const loop = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+      const bar = $("#level"); if (bar) bar.style.width = Math.min(100, (peak / 128) * 180) + "%";
+      recorder.raf = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch {}
+}
+function cleanupRecorder() {
+  clearInterval(recorder.timer); cancelAnimationFrame(recorder.raf);
+  try { recorder.audioCtx?.close(); } catch {}
+  recorder.stream?.getTracks().forEach(t => t.stop());
+  releaseAwake();
+  recorder.mr = null; recorder.stream = null; recorder.audioCtx = null;
+}
+function stopRecording(save) {
+  const mr = recorder.mr; if (!mr) return;
+  const duration = currentElapsed();
+  mr.onstop = async () => {
+    const blob = new Blob(recorder.chunks, { type: mr.mimeType || "audio/mp4" });
+    cleanupRecorder();
+    if (!save) { renderHome(); toast("Aufnahme verworfen"); return; }
+    if (duration < 1 || blob.size < 1000) { renderHome(); toast("Aufnahme war zu kurz"); return; }
+    await saveAndTranscribe(blob, { source: "mic", duration });
+  };
+  mr.stop();
+}
+async function saveAndTranscribe(blob, meta) {
+  const rec = { id: uid(), createdAt: meta.createdAt || new Date().toISOString(), duration: meta.duration || 0, source: meta.source,
+    fileName: meta.fileName || "", text: "", rawText: "", status: "pending", error: "", audio: blob };
+  await put("recordings", rec);
+  busy.add(rec.id);
+  renderHome();
+  const ok = await processRecording(rec);
+  busy.delete(rec.id);
+  toast(ok ? "Transkription fertig" : "Transkription fehlgeschlagen. Die Aufnahme bleibt gespeichert.", 3500);
+  if (location.hash.startsWith("#/aufnahme/" + rec.id)) renderDetail(rec.id); else if (route().view === "home") renderHome();
+}
+const busy = new Set();
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && recorder.mr) {
+    keepAwake();
+    if (recorder.mr.state === "inactive") toast("Die Aufnahme wurde vom iPhone unterbrochen.", 4000);
+  }
+});
+
+/* ---------- Datei hochladen ---------- */
+$("#fileInput").addEventListener("change", async (e) => {
+  const f = e.target.files?.[0]; e.target.value = "";
+  if (!f) return;
+  let duration = 0;
+  try {
+    duration = await new Promise((res) => {
+      const a = document.createElement("audio"); a.preload = "metadata";
+      a.onloadedmetadata = () => { res(isFinite(a.duration) ? a.duration : 0); URL.revokeObjectURL(a.src); };
+      a.onerror = () => res(0); a.src = URL.createObjectURL(f);
+    });
+  } catch {}
+  const createdAt = f.lastModified ? new Date(f.lastModified).toISOString() : new Date().toISOString();
+  await saveAndTranscribe(f, { source: "file", fileName: f.name, duration, createdAt });
+});
+
+/* ---------- Ansichten ---------- */
+function route() {
+  const h = location.hash || "#/";
+  if (h.startsWith("#/aufnahme/")) return { view: "detail", id: decodeURIComponent(h.slice(11)) };
+  if (h.startsWith("#/einstellungen")) return { view: "settings" };
+  return { view: "home" };
+}
+function setChrome(title, back) {
+  $("#title").textContent = title;
+  $("#backBtn").classList.toggle("hidden", !back);
+  $("#settingsBtn").classList.toggle("hidden", !!back);
+}
+let searchTerm = "";
+
+async function renderHome() {
+  if (route().view !== "home") return;
+  setChrome("Imkerbuch", false);
+  const hasKey = !!settings.get("groqKey").trim();
+  const recs = (await getAll("recordings")).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const isRec = !!recorder.mr;
+
+  let html = "";
+  if (!hasKey) html += `<div class="banner">Für die Transkription wird ein kostenloser Groq-Schlüssel benötigt. <a href="#/einstellungen">Jetzt einrichten</a></div>`;
+
+  html += `<section class="card recorder ${recorder.paused ? "paused" : ""}">`;
+  if (!isRec) {
+    html += `<button class="rec-btn" id="recStart" aria-label="Aufnahme starten">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+        Aufnehmen</button>
+      <div class="muted small">oder <a href="#" id="uploadLink">Audiodatei hochladen</a> (z. B. aus Sprachmemos)</div>`;
+  } else {
+    html += `<div class="muted"><span class="pulse"></span>${recorder.paused ? "Pausiert" : "Aufnahme läuft"}</div>
+      <div class="timer" id="timer">${fmtDur(currentElapsed())}</div>
+      <div class="level"><div id="level"></div></div>
+      <div class="rec-actions">
+        <button id="recPause">${recorder.paused ? "&#9654; Weiter" : "&#10074;&#10074; Pause"}</button>
+        <button class="btn-primary" id="recStop">&#9632; Fertig</button>
+        <button class="btn-ghost btn-danger" id="recDiscard">Verwerfen</button>
+      </div>
+      <p class="muted small" style="margin:14px 0 0">Bildschirm bitte nicht sperren, sonst stoppt das iPhone die Aufnahme.</p>`;
+  }
+  html += `</section>`;
+
+  if (recs.length) {
+    html += `<input type="search" id="search" placeholder="In Notizen suchen…" value="${esc(searchTerm)}" autocomplete="off">`;
+  }
+  html += `<div id="list"></div>`;
+  app.innerHTML = html;
+
+  $("#recStart")?.addEventListener("click", startRecording);
+  $("#uploadLink")?.addEventListener("click", (e) => { e.preventDefault(); $("#fileInput").click(); });
+  $("#recPause")?.addEventListener("click", togglePause);
+  $("#recStop")?.addEventListener("click", () => stopRecording(true));
+  $("#recDiscard")?.addEventListener("click", () => { if (confirm("Aufnahme wirklich verwerfen?")) stopRecording(false); });
+  $("#search")?.addEventListener("input", (e) => { searchTerm = e.target.value; renderList(recs); });
+  renderList(recs);
+}
+
+function highlight(text, term) {
+  const safe = esc(text);
+  if (!term) return safe;
+  const re = new RegExp("(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "gi");
+  return safe.replace(re, "<mark>$1</mark>");
+}
+function renderList(recs) {
+  const list = $("#list"); if (!list) return;
+  const term = searchTerm.trim().toLowerCase();
+  const filtered = term ? recs.filter(r => (r.text || "").toLowerCase().includes(term)) : recs;
+  if (!recs.length) { list.innerHTML = `<div class="empty">Noch keine Aufnahmen. Tippe auf „Aufnehmen“, um die erste Notiz zu sprechen.</div>`; return; }
+  if (!filtered.length) { list.innerHTML = `<div class="empty">Keine Notiz enthält „${esc(searchTerm)}“.</div>`; return; }
+  let html = "", lastDay = "";
+  for (const r of filtered) {
+    const day = dayLabel(r.createdAt);
+    if (day !== lastDay) { html += `<div class="day">${esc(day)}</div>`; lastDay = day; }
+    let chip = "";
+    if (r.status === "pending" || busy.has(r.id)) chip = `<span class="chip warn">wird transkribiert…</span>`;
+    else if (r.status === "error") chip = `<span class="chip err">fehlgeschlagen</span>`;
+    else if (r.text !== r.rawText) chip = `<span class="chip ok">bearbeitet</span>`;
+    let preview = r.text ? highlight(previewSnippet(r.text, term), term) : `<span class="muted">${r.status === "error" ? esc(r.error) : "Text folgt…"}</span>`;
+    html += `<a class="item" href="#/aufnahme/${encodeURIComponent(r.id)}">
+      <div class="item-head"><span>${fmtTime(r.createdAt)} · ${fmtDur(r.duration)} min${r.source === "file" ? " · Datei" : ""}</span>${chip}</div>
+      <div class="item-text">${preview}</div></a>`;
+  }
+  list.innerHTML = html;
+}
+function previewSnippet(text, term) {
+  if (!term) return text;
+  const i = text.toLowerCase().indexOf(term);
+  return i > 60 ? "…" + text.slice(i - 40) : text;
+}
+
+async function renderDetail(id) {
+  const r = await getOne("recordings", id);
+  setChrome("Notiz", true);
+  if (!r) { app.innerHTML = `<div class="empty">Diese Notiz gibt es nicht mehr. <a href="#/">Zur Übersicht</a></div>`; return; }
+  const pending = r.status === "pending" || busy.has(r.id);
+  let html = `<div class="muted small" style="margin-bottom:10px">${esc(fmtDate(r.createdAt))}, ${fmtTime(r.createdAt)} Uhr · ${fmtDur(r.duration)} min${r.fileName ? " · " + esc(r.fileName) : ""}</div>`;
+  if (pending) {
+    html += `<div class="banner"><span class="spinner"></span> Wird transkribiert…</div>`;
+  } else if (r.status === "error") {
+    html += `<div class="banner err"><strong>Transkription fehlgeschlagen.</strong><br>${esc(r.error)}
+      <div class="row" style="margin-top:10px"><button class="btn-primary" id="retry">Erneut versuchen</button></div></div>`;
+  }
+  if (!pending && r.status !== "error") {
+    html += `<textarea id="text" aria-label="Transkript">${esc(r.text)}</textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="btn-primary" id="save" disabled>Speichern</button>
+        <button id="copy">Kopieren</button>
+        ${r.text !== r.rawText ? `<button id="restore">Original wiederherstellen</button>` : ""}
+        <span class="grow"></span>
+        <button class="btn-ghost btn-danger" id="delete">Löschen</button>
+      </div>`;
+  } else {
+    html += `<div class="row" style="margin-top:12px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Löschen</button></div>`;
+  }
+  app.innerHTML = html;
+
+  const ta = $("#text"), saveBtn = $("#save");
+  ta?.addEventListener("input", () => { saveBtn.disabled = ta.value === r.text; });
+  saveBtn?.addEventListener("click", async () => { r.text = ta.value; r.updatedAt = new Date().toISOString(); await put("recordings", r); toast("Gespeichert"); renderDetail(id); });
+  $("#copy")?.addEventListener("click", async () => { try { await navigator.clipboard.writeText(ta.value); toast("Kopiert"); } catch { ta.select(); toast("Text markiert, bitte manuell kopieren"); } });
+  $("#restore")?.addEventListener("click", async () => { if (!confirm("Deine Korrekturen verwerfen und den Originaltext wiederherstellen?")) return; r.text = r.rawText; await put("recordings", r); renderDetail(id); });
+  $("#delete")?.addEventListener("click", async () => { if (!confirm("Diese Notiz endgültig löschen?")) return; await del("recordings", id); toast("Gelöscht"); location.hash = "#/"; });
+  $("#retry")?.addEventListener("click", async () => {
+    busy.add(id); renderDetail(id);
+    const ok = await processRecording(r); busy.delete(id);
+    toast(ok ? "Transkription fertig" : "Wieder fehlgeschlagen"); renderDetail(id);
+  });
+}
+
+async function renderSettings() {
+  setChrome("Einstellungen", true);
+  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const model = settings.get("model", "whisper-large-v3");
+  let persisted = null;
+  try { persisted = await navigator.storage?.persisted?.(); } catch {}
+  app.innerHTML = `
+    <section class="card">
+      <h2>Transkription (Groq)</h2>
+      <p class="muted small" style="margin:0">Kostenloser Schlüssel von <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Er wird nur auf diesem Gerät gespeichert.</p>
+      <label for="key">API-Schlüssel</label>
+      <div class="row"><input class="grow" type="password" id="key" value="${esc(settings.get("groqKey"))}" placeholder="gsk_…" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:auto">
+        <button id="showKey" class="icon-btn" aria-label="Schlüssel anzeigen">&#128065;</button></div>
+      <label for="model">Modell</label>
+      <select id="model">
+        <option value="whisper-large-v3" ${model === "whisper-large-v3" ? "selected" : ""}>Genau (empfohlen)</option>
+        <option value="whisper-large-v3-turbo" ${model === "whisper-large-v3-turbo" ? "selected" : ""}>Schnell</option>
+      </select>
+      <div class="row" style="margin-top:14px"><button class="btn-primary" id="saveKey">Speichern</button><button id="testKey">Verbindung testen</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Meine Völker</h2>
+      <p class="muted small" style="margin:0 0 6px">Die Namen helfen der Spracherkennung bei der richtigen Schreibweise. In einem späteren Schritt ordnet die App Notizen damit automatisch den Völkern zu.</p>
+      <div id="colonies">${colonies.length ? colonies.map(c => `
+        <div class="colony"><div><strong>${esc(c.name)}</strong>${c.aliases?.length ? `<div class="muted small">auch: ${esc(c.aliases.join(", "))}</div>` : ""}</div>
+          <div class="row"><button class="icon-btn" data-edit="${esc(c.id)}" aria-label="Bearbeiten">&#9998;</button><button class="icon-btn btn-danger" data-del="${esc(c.id)}" aria-label="Löschen">&#10005;</button></div></div>`).join("")
+        : `<div class="muted small" style="padding:8px 0">Noch keine Völker eingetragen.</div>`}</div>
+      <label for="cName">Name des Volks</label>
+      <input type="text" id="cName" placeholder="z. B. Hertha BSC Berlin">
+      <label for="cAlias">Spitznamen (mit Komma getrennt)</label>
+      <input type="text" id="cAlias" placeholder="z. B. Hertha, Berlin">
+      <input type="hidden" id="cId">
+      <div class="row" style="margin-top:12px"><button class="btn-primary" id="cSave">Volk hinzufügen</button><button id="cCancel" class="hidden">Abbrechen</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Datensicherung</h2>
+      <p class="muted small" style="margin:0 0 10px">Alle Notizen liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. nach OneDrive.${persisted === false ? " Dauerhafte Speicherung ist nicht bestätigt. Am iPhone hilft es, die App zum Home-Bildschirm hinzuzufügen." : ""}</p>
+      <div class="row"><button id="export">Sicherung exportieren</button><button id="import">Sicherung importieren</button></div>
+      <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+    </section>
+    <p class="muted small" style="text-align:center">Imkerbuch ${APP_VERSION}</p>`;
+
+  $("#showKey").addEventListener("click", () => { const k = $("#key"); k.type = k.type === "password" ? "text" : "password"; });
+  $("#saveKey").addEventListener("click", () => { settings.set("groqKey", $("#key").value.trim()); settings.set("model", $("#model").value); toast("Gespeichert"); });
+  $("#testKey").addEventListener("click", async (e) => {
+    const key = $("#key").value.trim(); if (!key) { toast("Bitte zuerst einen Schlüssel eintragen"); return; }
+    e.target.disabled = true; e.target.innerHTML = `<span class="spinner"></span> Teste…`;
+    try {
+      const res = await fetch(GROQ_URL + "/models", { headers: { Authorization: "Bearer " + key } });
+      if (res.ok) { settings.set("groqKey", key); settings.set("model", $("#model").value); toast("Verbindung klappt, Schlüssel gespeichert ✓"); }
+      else toast(res.status === 401 ? "Schlüssel ungültig" : "Fehler " + res.status, 3500);
+    } catch { toast("Keine Verbindung zu Groq", 3500); }
+    e.target.disabled = false; e.target.textContent = "Verbindung testen";
+  });
+
+  const resetForm = () => { $("#cId").value = ""; $("#cName").value = ""; $("#cAlias").value = ""; $("#cSave").textContent = "Volk hinzufügen"; $("#cCancel").classList.add("hidden"); };
+  $("#cCancel").addEventListener("click", resetForm);
+  $("#cSave").addEventListener("click", async () => {
+    const name = $("#cName").value.trim(); if (!name) { toast("Bitte einen Namen eingeben"); return; }
+    const aliases = $("#cAlias").value.split(",").map(s => s.trim()).filter(Boolean);
+    const id = $("#cId").value || uid();
+    const existing = $("#cId").value ? await getOne("colonies", id) : null;
+    await put("colonies", { ...(existing || {}), id, name, aliases, createdAt: existing?.createdAt || new Date().toISOString() });
+    toast(existing ? "Volk aktualisiert" : "Volk hinzugefügt"); renderSettings();
+  });
+  app.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", async () => {
+    const c = await getOne("colonies", b.dataset.edit);
+    $("#cId").value = c.id; $("#cName").value = c.name; $("#cAlias").value = (c.aliases || []).join(", ");
+    $("#cSave").textContent = "Änderung speichern"; $("#cCancel").classList.remove("hidden"); $("#cName").focus();
+  }));
+  app.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Dieses Volk aus der Liste entfernen?")) return;
+    await del("colonies", b.dataset.del); renderSettings();
+  }));
+
+  $("#export").addEventListener("click", exportData);
+  $("#import").addEventListener("click", () => $("#importFile").click());
+  $("#importFile").addEventListener("change", importData);
+}
+
+/* ---------- Sicherung ---------- */
+async function exportData() {
+  const recordings = (await getAll("recordings")).map(({ audio, ...r }) => r);
+  const colonies = await getAll("colonies");
+  const data = { app: "imkerbuch", version: 1, exportedAt: new Date().toISOString(), colonies, recordings };
+  const name = `imkerbuch-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
+  const file = new File([JSON.stringify(data, null, 2)], name, { type: "application/json" });
+  try {
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+  } catch (e) { if (e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+async function importData(e) {
+  const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.app !== "imkerbuch") throw new Error();
+    let n = 0;
+    for (const c of data.colonies || []) await put("colonies", c);
+    for (const r of data.recordings || []) { if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; } }
+    toast(`${n} Notizen importiert`); renderSettings();
+  } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
+}
+
+/* ---------- Start ---------- */
+function render() {
+  const r = route();
+  if (r.view === "detail") renderDetail(r.id);
+  else if (r.view === "settings") renderSettings();
+  else renderHome();
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", render);
+window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDefault(); e.returnValue = ""; } });
+
+(async () => {
+  try { await navigator.storage?.persist?.(); } catch {}
+  // Aufnahmen, die beim letzten Mal mitten in der Übertragung hingen, als fehlgeschlagen markieren
+  for (const r of await getAll("recordings")) {
+    if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; await put("recordings", r); }
+  }
+  render();
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
