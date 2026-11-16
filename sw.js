@@ -1,5 +1,5 @@
 // Service Worker: lädt die App bei Netz immer frisch und hält eine Kopie für den Offline-Start bereit.
-const CACHE = "imkerbuch-v4";
+const CACHE = "imkerbuch-v5";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -15,7 +15,8 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(req)
+    // "no-cache": immer beim Server nachfragen, ob es eine neuere Version gibt (statt bis zu 10 Min. alte Kopie)
+    fetch(req, { cache: "no-cache" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));

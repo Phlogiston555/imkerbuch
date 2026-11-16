@@ -186,7 +186,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "4.0.0";
+const APP_VERSION = "4.0.1";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -1901,7 +1901,19 @@ window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDef
   if (msConnected()) {
     syncNow({ quiet: login !== "ok" }).then(ok => { if (login === "ok" && ok) toast("Mit Microsoft verbunden und synchronisiert ✓", 3500); });
   }
-  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    // Bei einem Update lädt sich die App einmal selbst neu (nicht während einer Aufnahme)
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloaded) return;
+      if (recorder.mr) { toast("Ein Update ist da. Es wird beim nächsten Öffnen aktiv.", 4000); return; }
+      reloaded = true; location.reload();
+    });
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => reg.update()).catch(() => {});
+    // auch beim Zurückholen aus dem Hintergrund nach Updates schauen
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") navigator.serviceWorker.getRegistration().then(r => r?.update()).catch(() => {}); });
+  }
 })();
 </script>
 </body>
