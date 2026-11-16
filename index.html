@@ -126,6 +126,10 @@
   .colony-card { display: block; text-decoration: none; color: inherit; }
   .colony-card h2 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
   details > summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
+  .ai-text { white-space: pre-wrap; line-height: 1.55; }
+  ul.src { margin: 4px 0 8px; padding-left: 18px; }
+  ul.src a { word-break: break-word; }
+  .lib-doc { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; }
 
   /* Prüfansicht */
   .grp { margin: 16px 0 6px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
@@ -176,12 +180,13 @@
   <a href="#/voelker" data-tab="voelker"><span class="e">🐝</span>Völker</a>
   <a href="#/aufgaben" data-tab="aufgaben"><span class="e">✅</span>Aufgaben<span class="badge hidden" id="badgeTasks"></span></a>
   <a href="#/fragen" data-tab="fragen"><span class="e">❓</span>Fragen</a>
+  <a href="#/wissen" data-tab="wissen"><span class="e">🧠</span>Wissen</a>
 </nav>
 <input type="file" id="fileInput" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.mp4" class="hidden">
 
 <script>
 "use strict";
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "4.0.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -195,6 +200,7 @@ const TYPES = {
   aufgabe: { label: "Aufgabe", plural: "Aufgaben", icon: "✅" },
   frage: { label: "Frage", plural: "Fragen", icon: "❓" },
   messwert: { label: "Messwert", plural: "Messwerte", icon: "📊" },
+  wissen: { label: "Learning", plural: "Learnings", icon: "🧠" },
 };
 const METRICS = {
   koenigin: { label: "Königin (Jahrgang)", short: "Königin" },
@@ -207,10 +213,10 @@ const METRICS = {
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("imkerbuch", 3);
+    const req = indexedDB.open("imkerbuch", 4);
     req.onupgradeneeded = () => {
       const d = req.result;
-      for (const s of ["recordings", "colonies", "entries", "tombstones"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -234,6 +240,7 @@ const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
 const SYNCED = new Set(["colonies", "entries", "recordings"]);
 const rawPut = (store, obj) => tx(store, "readwrite", s => s.put(obj));
 const rawDel = (store, id) => tx(store, "readwrite", s => s.delete(id));
+const putMany = (store, arr) => tx(store, "readwrite", s => { for (const x of arr) s.put(x); });
 // put/del merken sich Änderungszeit bzw. Löschungen, damit der OneDrive-Abgleich weiß, was neuer ist
 async function put(store, obj) {
   if (SYNCED.has(store)) obj.updatedAt = new Date().toISOString();
@@ -390,6 +397,7 @@ Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
 - "beobachtung": eine Feststellung, z. B. Königin gesehen, Stifte, Brutbild, Futtervorrat, Sanftmut, Schwarmstimmung.
 - "aufgabe": etwas, das noch erledigt werden soll. "dueDate" als YYYY-MM-DD, wenn ein Zeitpunkt genannt oder ableitbar ist (vom Aufnahmedatum aus gerechnet; "nächste Woche" = Montag der Folgewoche, "morgen", "in drei Tagen" usw.). Sonst null.
 - "frage": eine offene Frage, die der Imker klären möchte.
+- "wissen": ein Learning, also eine Erkenntnis oder Erfahrung, die sich der Imker für die Zukunft merken will (z. B. "Merke: …", "Hab gelernt, dass …", "Nächstes Jahr früher …", "Fehler war …", "Das hat gut funktioniert …"). "text" als allgemeingültige, eigenständig verständliche Regel formulieren (z. B. "Honigraum erst aufsetzen, wenn 7 Waben besetzt sind"). Gehört es erkennbar zu einem Volk, dieses zuordnen, sonst null.
 - "messwert": ein Zahlenwert mit "metric" = "zargen" (Anzahl Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
 
 Regeln:
@@ -402,7 +410,7 @@ Regeln:
 - Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
 
 Antworte ausschließlich mit JSON in genau dieser Form:
-{"items":[{"type":"beobachtung|aufgabe|frage|messwert","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"zargen|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null"}]}`;
+{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"zargen|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null"}]}`;
 }
 function parseJsonLoose(s) {
   s = String(s || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -614,6 +622,7 @@ function route() {
     case "volk": return { view: "colony", id: p[1] || GENERAL };
     case "aufgaben": return { view: "tasks", tab: "aufgaben" };
     case "fragen": return { view: "questions", tab: "fragen" };
+    case "wissen": return { view: "knowledge", tab: "wissen" };
     case "eintrag": return { view: "entry", id: p[1] };
     case "neu": return { view: "new", colony: p[1] || "", type: p[2] || "" };
     default: return { view: "home", tab: "notizen" };
@@ -805,6 +814,9 @@ async function applyReview(rec) {
   }
   rec.extraction.status = "done"; rec.extraction.appliedAt = new Date().toISOString(); rec.extraction.entryIds = ids;
   await put("recordings", rec);
+  if (settings.get("autoAnswer", "1") === "1") {
+    for (const id of ids) { const e = await getOne("entries", id); if (e?.type === "frage") enqueueAnswer(id); }
+  }
   toast(`${ids.length} ${ids.length === 1 ? "Eintrag" : "Einträge"} übernommen`);
   updateBadges();
   renderDetail(rec.id);
@@ -914,6 +926,10 @@ function entryRow(e, colonies, showColony = true) {
   if (e.type === "aufgabe" && !e.done && e.dueDate) meta.push(dueLabel(e.dueDate));
   if (e.type === "aufgabe" && e.done) meta.push("erledigt");
   if (e.type === "frage" && e.done) meta.push("beantwortet");
+  if (e.type === "frage" && !e.done) {
+    if (busyA.has(e.id)) meta.push("💡 wird recherchiert…");
+    else if (e.aiAnswer?.text && !e.answer) meta.push("💡 Antwortvorschlag da");
+  }
   if (e.type === "frage" && e.answer) meta.push("Antwort: " + esc(e.answer.slice(0, 80)) + (e.answer.length > 80 ? "…" : ""));
   const check = (e.type === "aufgabe") ? `<input type="checkbox" data-toggle="${esc(e.id)}" ${e.done ? "checked" : ""} aria-label="Erledigt">` : `<span class="ico">${t.icon}</span>`;
   return `<div class="entry ${e.done ? "done" : ""}">${check}
@@ -1019,12 +1035,38 @@ async function renderQuestions() {
   const colonies = await getAll("colonies");
   const qs = (await getAll("entries")).filter(e => e.type === "frage").sort(sortEntries);
   const open = qs.filter(e => !e.done), done = qs.filter(e => e.done);
-  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//frage">+ Frage</a></div>
-    <p class="muted small">Tippe auf eine Frage, um eine Antwort zu notieren. Antwortvorschläge aus der Imker-Literatur folgen in einem späteren Schritt.</p>`;
+  const missing = open.filter(e => !e.aiAnswer?.text && !busyA.has(e.id));
+  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//frage">+ Frage</a>
+      ${missing.length && groqKey() ? `<button id="aiAll">💡 Vorschläge holen (${missing.length})</button>` : ""}</div>
+    <p class="muted small">Tippe auf eine Frage, um den Antwortvorschlag der KI zu sehen oder selbst eine Antwort zu notieren.</p>`;
   if (!open.length) html += `<div class="empty">Keine offenen Fragen.</div>`;
   else html += `<div class="day">Offen</div>` + open.map(e => entryRow(e, colonies)).join("");
   if (done.length) html += `<details style="margin-top:18px"><summary>Beantwortet (${done.length})</summary>${done.map(e => entryRow(e, colonies)).join("")}</details>`;
   app.innerHTML = html;
+  $("#aiAll")?.addEventListener("click", () => { for (const e of missing) enqueueAnswer(e.id); });
+}
+
+/* ---------- Ansicht: Wissen (Learnings) ---------- */
+let knowTerm = "";
+async function renderKnowledge(fromSync = false) {
+  if (fromSync && document.activeElement?.id === "kSearch") return; // beim Tippen nicht stören
+  setChrome("Wissen", { tab: "wissen" });
+  const colonies = await getAll("colonies");
+  const all = (await getAll("entries")).filter(e => e.type === "wissen").sort(sortEntries);
+  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//wissen">+ Learning</a></div>
+    <p class="muted small">Deine eigenen Erfahrungen. Die KI erkennt sie in Sprachnotizen, etwa bei „Merke: …“ oder „Hab gelernt, dass …“, und berücksichtigt sie vorrangig bei Antwortvorschlägen.</p>`;
+  if (all.length) html += `<input type="search" id="kSearch" placeholder="Learnings durchsuchen…" value="${esc(knowTerm)}" autocomplete="off" style="margin-bottom:8px">`;
+  html += `<div id="kList"></div>`;
+  app.innerHTML = html;
+  const draw = () => {
+    const t = normWord(knowTerm.trim());
+    const list = t ? all.filter(e => normWord(e.text + " " + colonyLabel(e.colonyId, colonies)).includes(t)) : all;
+    $("#kList").innerHTML = !all.length ? `<div class="empty">Noch keine Learnings. Sag in einer Notiz zum Beispiel „Merke: Honigraum erst aufsetzen, wenn sieben Waben besetzt sind.“</div>`
+      : !list.length ? `<div class="empty">Kein Learning enthält „${esc(knowTerm)}“.</div>`
+      : list.map(e => entryRow(e, colonies)).join("");
+  };
+  draw();
+  $("#kSearch")?.addEventListener("input", (ev) => { knowTerm = ev.target.value; draw(); });
 }
 
 /* ---------- Ansicht: Eintrag anlegen / bearbeiten ---------- */
@@ -1064,7 +1106,9 @@ async function renderEntryForm(existing, preset = {}) {
       ${isNew ? "" : `<button class="btn-ghost btn-danger" id="eDelete">Löschen</button>`}
     </div>
     ${rec ? `<p class="muted small" style="margin:14px 0 0">Aus der <a href="#/aufnahme/${encodeURIComponent(rec.id)}">Sprachnotiz vom ${fmtShort(localDate(new Date(rec.createdAt)))}</a></p>` : ""}
-  </section>`;
+  </section>
+  ${!isNew && e.type === "frage" ? `<section class="card" id="aiBox"></section>` : ""}`;
+  if (!isNew && e.type === "frage") renderAiBox(e.id);
   const typeSel = $("#eType");
   typeSel.addEventListener("change", () => {
     const t = typeSel.value;
@@ -1077,7 +1121,8 @@ async function renderEntryForm(existing, preset = {}) {
   if (isNew) $("#eText").focus();
   $("#eSave").addEventListener("click", async () => {
     const t = typeSel.value;
-    const out = { ...(existing || { id: uid(), createdAt: new Date().toISOString(), source: "manual" }) };
+    const latest = existing ? await getOne("entries", existing.id) : null; // enthält ggf. inzwischen eingetroffene KI-Antworten
+    const out = { ...(latest || existing || { id: uid(), createdAt: new Date().toISOString(), source: "manual" }) };
     out.type = t; out.colonyId = $("#eColony").value || null; out.text = $("#eText").value.trim();
     out.date = $("#eDate").value || todayStr();
     delete out.metric; delete out.value; delete out.dueDate;
@@ -1095,6 +1140,7 @@ async function renderEntryForm(existing, preset = {}) {
     if (out.done && !wasDone) out.doneAt = new Date().toISOString();
     out.updatedAt = new Date().toISOString();
     await put("entries", out);
+    if (isNew && t === "frage" && settings.get("autoAnswer", "1") === "1") enqueueAnswer(out.id);
     toast(isNew ? "Hinzugefügt" : "Gespeichert");
     updateBadges();
     if (navDepth > 0) history.back(); else location.hash = "#/volk/" + encodeURIComponent(out.colonyId || GENERAL);
@@ -1112,6 +1158,7 @@ async function renderSettings() {
   const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const model = settings.get("model", "whisper-large-v3");
   const chat = settings.get("chatModel");
+  const libDocs = (await getAll("libdocs")).filter(d => !d.deleted).sort((a, b) => a.title.localeCompare(b.title, "de"));
   let persisted = null;
   try { persisted = await navigator.storage?.persisted?.(); } catch {}
   app.innerHTML = `
@@ -1129,6 +1176,9 @@ async function renderSettings() {
       <label for="chatModel">KI für die Auswertung</label>
       <select id="chatModel"><option value="">Automatisch${settings.get("autoModel") ? " (" + esc(settings.get("autoModel")) + ")" : ""}</option>
         ${chat ? `<option value="${esc(chat)}" selected>${esc(chat)}</option>` : ""}</select>
+      <label for="region">Deine Region (für jahreszeitliche Hinweise)</label>
+      <input type="text" id="region" value="${esc(settings.get("region"))}" placeholder="z. B. Münsterland, NRW">
+      <div class="row" style="margin-top:12px"><input type="checkbox" id="autoAnswer" ${settings.get("autoAnswer", "1") === "1" ? "checked" : ""}><label for="autoAnswer" style="margin:0;font-weight:400;flex:1">Zu neuen Fragen automatisch Antworten vorschlagen</label></div>
       <div class="row" style="margin-top:14px"><button class="btn-primary" id="saveKey">Speichern</button><button id="testKey">Verbindung testen</button></div>
     </section>
 
@@ -1166,6 +1216,15 @@ async function renderSettings() {
     </section>
 
     <section class="card">
+      <h2>Meine Imker-Literatur (PDF)</h2>
+      <p class="muted small" style="margin:0 0 6px">Bücher und Skripte, die bei Antwortvorschlägen berücksichtigt werden. Der Text wird auf dem Gerät durchsucht${msConnected() ? " und über OneDrive mit deinen anderen Geräten geteilt" : ""}. Eingescannte PDFs ohne Textebene funktionieren nicht.</p>
+      <div id="libList">${libDocs.length ? libDocs.map(d => `<div class="lib-doc"><div><strong>${esc(d.title)}</strong><div class="muted small">${d.pages} Seiten · hinzugefügt ${fmtShort(localDate(new Date(d.addedAt)))}</div></div>
+          <button class="icon-btn btn-danger" data-libdel="${esc(d.id)}" aria-label="Entfernen">&#10005;</button></div>`).join("") : `<div class="muted small" style="padding:6px 0">Noch keine PDFs hinzugefügt.</div>`}</div>
+      <div class="row" style="margin-top:12px"><button id="libAdd">PDF hinzufügen</button><span id="libStatus" class="muted small"></span></div>
+      <input type="file" id="libFile" accept="application/pdf,.pdf" multiple class="hidden">
+    </section>
+
+    <section class="card">
       <h2>Datensicherung</h2>
       <p class="muted small" style="margin:0 0 10px">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. nach OneDrive.${persisted === false ? " Dauerhafte Speicherung ist nicht bestätigt. Am iPhone hilft es, die App vom Home-Bildschirm aus zu öffnen." : ""}</p>
       <div class="row"><button id="export">Sicherung exportieren</button><button id="import">Sicherung importieren</button></div>
@@ -1179,7 +1238,9 @@ async function renderSettings() {
       ids.map(id => `<option value="${esc(id)}" ${id === chat ? "selected" : ""}>${esc(id)}</option>`).join("");
   }).catch(() => {});
   $("#showKey").addEventListener("click", () => { const k = $("#key"); k.type = k.type === "password" ? "text" : "password"; });
-  const saveAll = () => { settings.set("groqKey", $("#key").value.trim()); settings.set("model", $("#model").value); settings.set("chatModel", $("#chatModel").value); };
+  const saveAll = () => { settings.set("groqKey", $("#key").value.trim()); settings.set("model", $("#model").value); settings.set("chatModel", $("#chatModel").value); settings.set("region", $("#region").value.trim()); };
+  $("#autoAnswer").addEventListener("change", (e) => settings.set("autoAnswer", e.target.checked ? "1" : "0"));
+  $("#region").addEventListener("change", (e) => settings.set("region", e.target.value.trim()));
   $("#saveKey").addEventListener("click", () => { saveAll(); toast("Gespeichert"); });
   $("#testKey").addEventListener("click", async (e) => {
     const key = $("#key").value.trim(); if (!key) { toast("Bitte zuerst einen Schlüssel eintragen"); return; }
@@ -1228,6 +1289,27 @@ async function renderSettings() {
   });
   $("#outlookOn")?.addEventListener("change", (e) => { settings.set("outlook", e.target.checked ? "1" : "0"); if (e.target.checked) scheduleSync(500); });
   $("#msClientSave").addEventListener("click", () => { settings.set("msClientId", $("#msClient").value.trim()); toast("Gespeichert"); renderSettings(); });
+
+  $("#libAdd").addEventListener("click", () => $("#libFile").click());
+  $("#libFile").addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files || []); e.target.value = "";
+    if (!files.length) return;
+    const btn = $("#libAdd"); btn.disabled = true;
+    let ok = 0;
+    for (const f of files) {
+      try {
+        await addPdf(f, (p, n) => { const s = $("#libStatus"); if (s) s.textContent = `„${f.name}“: Seite ${p} von ${n}…`; });
+        ok++;
+      } catch (err) { toast(err.message || "Die PDF konnte nicht gelesen werden.", 4500); }
+    }
+    if (ok) toast(`${ok} PDF${ok === 1 ? "" : "s"} hinzugefügt`);
+    if (route().view === "settings") renderSettings();
+  });
+  $$("[data-libdel]").forEach(b => b.addEventListener("click", async () => {
+    const d = await getOne("libdocs", b.dataset.libdel); if (!d) return;
+    if (!confirm(`„${d.title}“ aus der Literatur entfernen?${msConnected() ? " Es wird auch auf deinen anderen Geräten entfernt." : ""}`)) return;
+    await removeDocLocal(d); settings.set("libDirty", "1"); scheduleSync(); renderSettings();
+  }));
 }
 
 /* ---------- Sicherung ---------- */
@@ -1252,6 +1334,219 @@ async function importData(e) {
     for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
     toast(`${n} Notizen und ${m} Einträge importiert`); renderSettings(); updateBadges();
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
+}
+
+/* ---------- Eigene Literatur (PDF) ---------- */
+const normWord = (s) => String(s || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+const STOP = new Set(normWord("aber alle allem allen aller alles als also am an andere anderen auch auf aus bei beim bin bis bist da damit dann das dass dem den denn der des dessen die dies diese diesem diesen dieser dieses doch dort du durch ein eine einem einen einer eines er es etwas euch für gegen gibt hab habe haben hat hatte hier hin ich ihr im in ins ist ja je jede jedem jeden jeder jetzt kann kein keine man mehr mein mich mir mit muss nach nicht noch nun nur ob oder ohne sehr sein sich sie sind so soll sollte sonst um und uns unter viel vom von vor wann war warum was weil welche wenn wer werden wie wieder will wir wird wo zu zum zur über bitte gut beste besten volk".split(" ")).split(" "));
+const tokenize = (s) => normWord(s).split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w)).map(w => w.slice(0, 6));
+let libCache = null;
+async function libIndex() {
+  if (libCache) return libCache;
+  const [docs, chunks] = await Promise.all([getAll("libdocs"), getAll("libchunks")]);
+  const titles = Object.fromEntries(docs.filter(d => !d.deleted).map(d => [d.id, d.title]));
+  libCache = chunks.filter(c => titles[c.docId]).map(c => ({ docId: c.docId, page: c.page, text: c.text, title: titles[c.docId], ...indexText(c.text) }));
+  return libCache;
+}
+function indexText(text) {
+  const words = normWord(text).split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w));
+  return { len: words.length, joined: " " + words.join(" ") + " " };
+}
+const countIn = (hay, needle) => { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) !== -1) { n++; i += needle.length; } return n; };
+// Volltextsuche (BM25); Wortanfänge werden auch in zusammengesetzten Wörtern gefunden (z. B. „behand“ in „Winterbehandlung“)
+function rankItems(items, query, k = 4, rel = 0.4) {
+  if (!items.length) return [];
+  const qt = [...new Set(tokenize(query))].filter(t => t.length >= 4); if (!qt.length) return [];
+  const N = items.length, avg = items.reduce((s, c) => s + c.len, 0) / N || 1;
+  const tfs = items.map(c => qt.map(t => countIn(c.joined, t)));
+  const df = qt.map((_, j) => tfs.reduce((n, row) => n + (row[j] ? 1 : 0), 0));
+  const scored = items.map((c, i) => {
+    let s = 0;
+    qt.forEach((t, j) => {
+      const tf = tfs[i][j]; if (!tf) return;
+      const idf = Math.log(1 + (N - df[j] + 0.5) / (df[j] + 0.5));
+      s += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * c.len / avg));
+    });
+    return { c, s };
+  }).filter(x => x.s > 0).sort((a, b) => b.s - a.s);
+  if (!scored.length) return [];
+  const top = scored[0].s;
+  return scored.filter(x => x.s >= top * rel).slice(0, k).map(x => x.c);
+}
+async function searchLibrary(query, k = 4) { return rankItems(await libIndex(), query, k); }
+async function searchLearnings(query, k = 5) {
+  const learnings = (await getAll("entries")).filter(e => e.type === "wissen");
+  return rankItems(learnings.map(e => ({ ...e, ...indexText(e.text) })), query, k, 0.3);
+}
+let pdfjsPromise;
+function loadPdfJs() {
+  if (!pdfjsPromise) pdfjsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; resolve(window.pdfjsLib); };
+    s.onerror = () => { pdfjsPromise = null; reject(new Error("Das PDF-Werkzeug konnte nicht geladen werden. Besteht eine Internetverbindung?")); };
+    document.head.appendChild(s);
+  });
+  return pdfjsPromise;
+}
+async function addPdf(file, onProgress) {
+  const lib = await loadPdfJs();
+  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const docId = uid(), chunks = [];
+  let total = 0;
+  for (let p = 1; p <= pdf.numPages; p++) {
+    onProgress?.(p, pdf.numPages);
+    const content = await (await pdf.getPage(p)).getTextContent();
+    let text = "";
+    for (const it of content.items) text += (it.str || "") + (it.hasEOL ? "\n" : " ");
+    text = text.replace(/(\w)-\n(?=[a-zäöüß])/g, "$1").replace(/\s+/g, " ").trim();
+    total += text.length;
+    for (let i = 0, n = 0; i < text.length; n++) {
+      let end = Math.min(text.length, i + 1100);
+      if (end < text.length) { const dot = text.lastIndexOf(". ", end); if (dot > i + 600) end = dot + 1; }
+      chunks.push({ id: `${docId}:${p}:${n}`, docId, page: p, text: text.slice(i, end).trim() });
+      i = end;
+    }
+  }
+  if (total < 300) throw new Error(`„${file.name}“ enthält keinen lesbaren Text (vermutlich eingescannt).`);
+  const doc = { id: docId, title: file.name.replace(/\.pdf$/i, ""), pages: pdf.numPages, chunks: chunks.length, addedAt: new Date().toISOString() };
+  await putMany("libchunks", chunks);
+  await rawPut("libdocs", doc);
+  libCache = null; settings.set("libDirty", "1"); scheduleSync();
+  return doc;
+}
+async function removeDocLocal(doc, at) {
+  const ids = (await getAll("libchunks")).filter(c => c.docId === doc.id).map(c => c.id);
+  await tx("libchunks", "readwrite", s => { for (const id of ids) s.delete(id); });
+  await rawPut("libdocs", { ...doc, deleted: true, deletedAt: at || new Date().toISOString() });
+  libCache = null;
+}
+
+/* ---------- Antwortvorschläge ---------- */
+const busyA = new Set();
+const answerQueue = [];
+let answering = false;
+function enqueueAnswer(id) {
+  if (!groqKey() || busyA.has(id)) return;
+  answerQueue.push(id); busyA.add(id);
+  refreshAnswerUI(id);
+  runAnswerQueue();
+}
+async function runAnswerQueue() {
+  if (answering) return;
+  answering = true;
+  while (answerQueue.length) {
+    const id = answerQueue.shift();
+    try { await answerQuestion(id); }
+    catch (e) { const en = await getOne("entries", id); if (en) { en.aiAnswer = { error: e.message, at: new Date().toISOString() }; await put("entries", en); } }
+    busyA.delete(id);
+    refreshAnswerUI(id);
+    if (answerQueue.length) await new Promise(r => setTimeout(r, 2500));
+  }
+  answering = false;
+}
+function refreshAnswerUI(id) {
+  const r = route();
+  if (r.view === "entry" && r.id === id) renderAiBox(id);
+  else if (r.view === "questions") renderQuestions();
+  else if (r.view === "colony") renderColony(r.id);
+}
+function answerSystem(web, hasPdf, hasLearn) {
+  const region = settings.get("region").trim();
+  const today = new Date().toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric" });
+  return `Du bist ein erfahrener Imkermeister und berätst einen Hobby-Imker mit wenigen Völkern in Deutschland${region ? " (Region: " + region + ")" : ""}. Heute ist der ${today}.
+Beantworte die Frage auf Deutsch, praxisnah und knapp (höchstens etwa 150 Wörter). Berücksichtige die Jahreszeit und die Notizen zum Volk.
+Bei Varroa-Behandlung und Tierarzneimitteln: nur in Deutschland zugelassene Mittel nennen, auf die Gebrauchsinformation verweisen und keine Dosierungen erfinden. Wenn etwas unsicher ist oder regional abweicht, sag das offen.
+${web ? "Recherchiere im Web. Bevorzuge deutschsprachige Fachquellen: Bieneninstitute (z. B. LAVES Bieneninstitut Celle, LWG Veitshöchheim, Bieneninstitut Kirchhain, DLR Mayen, Landesanstalt für Bienenkunde Hohenheim), Deutscher Imkerbund, Fachzeitschriften.\n" : "Du hast keinen Internetzugang. Erfinde keine Links; nenne höchstens bekannte Institutionen ohne URL.\n"}${hasLearn ? "Berücksichtige die mitgelieferten eigenen Learnings des Imkers mit Vorrang: Das sind seine eigenen Erfahrungen. Wenn eines passt, verweise darauf mit [eigenes Learning]. Widerspricht ein Learning deutlich der Fachliteratur, weise freundlich darauf hin.\n" : ""}${hasPdf ? "Nutze vorrangig die mitgelieferten Auszüge aus der Literatur des Imkers und verweise im Text darauf mit [Titel, S. x].\n" : ""}
+Format: Zuerst die Antwort als Fließtext ohne Überschrift und ohne Tabellen. Danach eine eigene Zeile "QUELLEN:" und darunter je Quelle eine Zeile "- Titel | URL"${hasPdf ? ' (für Buchauszüge "- Titel, S. x")' : ""}. Ohne Quellen: "QUELLEN: keine".`;
+}
+function parseAnswer(content) {
+  let c = String(content || "").replace(/\s*【[^】]*】/g, "").trim();
+  const m = c.match(/(^|\n)\s*\**\s*QUELLEN\s*:?\s*\**\s*/i);
+  let text = c, srcPart = "";
+  if (m) { text = c.slice(0, m.index).trim(); srcPart = c.slice(m.index + m[0].length); }
+  const sources = [];
+  for (const line of srcPart.split("\n")) {
+    const l = line.replace(/^\s*([-*•]|\d+[.)])\s*/, "").trim();
+    if (!l || /^keine/i.test(l)) continue;
+    const md = l.match(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/);
+    const url = md ? md[2] : (l.match(/https?:\/\/[^\s)>\]|]+/) || [])[0] || null;
+    let title = md ? md[1] : l.replace(url || "", "");
+    title = title.replace(/[|\s–-]+$/, "").replace(/^[|\s–-]+/, "").trim() || url;
+    sources.push({ title, url });
+  }
+  if (!m) for (const u of new Set(c.match(/https?:\/\/[^\s)>\]]+/g) || [])) sources.push({ title: u, url: u });
+  text = text.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, "$1").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "");
+  return { text, sources: sources.slice(0, 8) };
+}
+async function answerLLM(user, hasPdf, hasLearn) {
+  const attempts = [{ model: "openai/gpt-oss-120b", web: true }, { model: "openai/gpt-oss-20b", web: true }, { model: null, web: false }];
+  let lastErr;
+  for (const a of attempts) {
+    const model = a.model || await chatModel();
+    const body = { model, temperature: 0.3, messages: [{ role: "system", content: answerSystem(a.web, hasPdf, hasLearn) }, { role: "user", content: user }] };
+    if (/gpt-oss/.test(model)) body.reasoning_effort = "low";
+    if (a.web) { body.tools = [{ type: "browser_search" }]; body.tool_choice = "required"; }
+    let res;
+    try { res = await fetch(GROQ_URL + "/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + groqKey(), "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+    catch { throw new Error("Keine Verbindung zur KI."); }
+    if (res.ok) {
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      if (content.trim()) return { ...parseAnswer(content), web: a.web, model };
+      lastErr = new Error("Die KI hat eine leere Antwort geliefert.");
+      continue;
+    }
+    lastErr = await groqError(res);
+    if (res.status === 401) throw lastErr;
+  }
+  throw lastErr || new Error("Keine Antwort erhalten.");
+}
+async function answerQuestion(id) {
+  const e = await getOne("entries", id); if (!e) return;
+  const colonies = await getAll("colonies");
+  const colony = colonies.find(c => c.id === e.colonyId);
+  const related = (await getAll("entries")).filter(x => x.id !== e.id && x.type !== "wissen" && (x.colonyId || null) === (e.colonyId || null)).sort(sortEntries).slice(0, 12);
+  const excerpts = await searchLibrary(e.text, 4);
+  const learnings = await searchLearnings(e.text, 5);
+  let user = `Frage: ${e.text}\n\n` + (colony ? `Betrifft Volk: ${colony.name}\n` : "Allgemeine Frage, kein bestimmtes Volk.\n");
+  if (related.length) user += "Letzte Notizen dazu:\n" + related.map(x => `- ${fmtShort(x.date)} ${TYPES[x.type]?.label || ""}: ${x.text}${x.done ? " (erledigt)" : ""}`).join("\n") + "\n";
+  if (learnings.length) user += "\nEigene Learnings des Imkers (eigene Erfahrungen, mit Vorrang berücksichtigen):\n" + learnings.map(x => `- ${x.text}${x.colonyId ? " (Volk " + colonyLabel(x.colonyId, colonies) + ")" : ""}, notiert am ${fmtShort(x.date)}`).join("\n") + "\n";
+  if (excerpts.length) user += "\nAuszüge aus der Literatur des Imkers:\n" + excerpts.map((x, i) => `[${i + 1}] ${x.title}, S. ${x.page}: ${x.text}`).join("\n\n") + "\n";
+  const r = await answerLLM(user, excerpts.length > 0, learnings.length > 0);
+  const latest = (await getOne("entries", id)) || e;
+  latest.aiAnswer = { text: r.text, sources: r.sources, pdf: excerpts.map(x => ({ title: x.title, page: x.page })),
+    learnings: learnings.map(x => ({ id: x.id, text: x.text })), web: r.web, model: r.model, at: new Date().toISOString() };
+  await put("entries", latest);
+}
+async function renderAiBox(id) {
+  const box = $("#aiBox"); if (!box) return;
+  const e = await getOne("entries", id);
+  if (!e || e.type !== "frage") { box.classList.add("hidden"); return; }
+  const a = e.aiAnswer;
+  let h = `<h2>💡 Antwortvorschlag</h2>`;
+  if (busyA.has(id)) h += `<p style="margin:0"><span class="spinner"></span> Die KI recherchiert…</p>`;
+  else if (!groqKey()) h += `<p class="muted small" style="margin:0">Dafür wird der Groq-Schlüssel benötigt (Einstellungen).</p>`;
+  else if (!a) h += `<p class="muted small" style="margin:0 0 10px">Noch kein Vorschlag.</p><button class="btn-primary" id="aiGo">Antwort vorschlagen</button>`;
+  else if (a.error) h += `<div class="banner err">${esc(a.error)}</div><button id="aiGo">Erneut versuchen</button>`;
+  else {
+    h += `<div class="ai-text">${esc(a.text)}</div>`;
+    if (a.sources?.length) h += `<div class="small" style="margin-top:10px"><strong>Quellen</strong><ul class="src">${a.sources.map(s => `<li>${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>` : esc(s.title)}</li>`).join("")}</ul></div>`;
+    if (a.learnings?.length) h += `<div class="small" style="margin-bottom:6px"><strong>🧠 Berücksichtigte Learnings</strong><ul class="src">${a.learnings.map(l => `<li><a href="#/eintrag/${encodeURIComponent(l.id)}">${esc(l.text)}</a></li>`).join("")}</ul></div>`;
+    if (a.pdf?.length) h += `<div class="small muted">Berücksichtigt aus deiner Literatur: ${esc(a.pdf.map(p => `${p.title} (S. ${p.page})`).join(", "))}</div>`;
+    h += `<p class="muted small">KI-Vorschlag ${a.web ? "mit Websuche" : "<strong>ohne Websuche</strong> (aus allgemeinem KI-Wissen)"} vom ${fmtShort(localDate(new Date(a.at)))}. Bitte prüfen, besonders bei Behandlungen.</p>
+      <div class="row"><button class="btn-primary" id="aiTake">Als Antwort übernehmen</button><button id="aiGo">Neu recherchieren</button></div>`;
+  }
+  box.innerHTML = h;
+  box.classList.remove("hidden");
+  $("#aiGo", box)?.addEventListener("click", () => enqueueAnswer(id));
+  $("#aiTake", box)?.addEventListener("click", () => {
+    const src = (a.sources || []).map(s => "- " + s.title + (s.url && s.url !== s.title ? " " + s.url : "")).join("\n");
+    $("#eAnswer").value = a.text + (src ? "\n\nQuellen:\n" + src : "");
+    $("#eDone").checked = true;
+    $("#eAnswer").scrollIntoView({ behavior: "smooth", block: "center" });
+    toast("Übernommen. Zum Sichern auf „Speichern“ tippen.", 3500);
+  });
 }
 
 /* ---------- Microsoft: Anmeldung ---------- */
@@ -1442,6 +1737,45 @@ async function syncOnce() {
   throw new Error("Die Daten wurden gleichzeitig auf einem anderen Gerät geändert. Bitte erneut versuchen.");
 }
 
+/* ---------- Literatur über OneDrive teilen (eigene Datei, nur bei Änderungen) ---------- */
+const LIB_FILE = "imkerbuch-literatur.json";
+async function syncLibrary(depth = 0) {
+  const metaRes = await graph(`/me/drive/special/approot:/${LIB_FILE}`);
+  let meta = null, remoteETag = null;
+  if (metaRes.status !== 404) { if (!metaRes.ok) throw await graphError(metaRes, "OneDrive (Literatur)"); meta = await metaRes.json(); remoteETag = meta.eTag; }
+  let dirty = settings.get("libDirty") === "1";
+  let changed = false;
+  if (remoteETag && remoteETag !== settings.get("libEtag")) {
+    let r;
+    try { r = await fetch(meta["@microsoft.graph.downloadUrl"], { cache: "no-store" }); } catch { throw new Error("Die Literatur konnte nicht aus OneDrive geladen werden."); }
+    if (!r.ok) throw new Error("Die Literatur konnte nicht aus OneDrive geladen werden (" + r.status + ").");
+    const remote = await r.json();
+    const localDocs = await getAll("libdocs");
+    const lmap = new Map(localDocs.map(d => [d.id, d]));
+    const rmap = new Map((remote.docs || []).map(d => [d.id, d]));
+    for (const rd of rmap.values()) {
+      const ld = lmap.get(rd.id);
+      if (!ld) {
+        await rawPut("libdocs", rd);
+        if (!rd.deleted) await putMany("libchunks", (remote.chunks || []).filter(c => c.docId === rd.id));
+        changed = true;
+      } else if (rd.deleted && !ld.deleted) { await removeDocLocal(ld, rd.deletedAt); changed = true; }
+    }
+    if (localDocs.some(d => !rmap.has(d.id) || (d.deleted && !rmap.get(d.id).deleted))) dirty = true;
+    settings.set("libEtag", remoteETag);
+    if (changed) libCache = null;
+  }
+  const localCount = (await getAll("libdocs")).length;
+  if (!dirty && (remoteETag || !localCount)) { settings.set("libDirty", "0"); return changed; }
+  const docs = await getAll("libdocs"), chunks = await getAll("libchunks");
+  const res = await graph(`/me/drive/special/approot:/${LIB_FILE}:/content`, { method: "PUT", json: { app: "imkerbuch-literatur", docs, chunks },
+    headers: remoteETag ? { "If-Match": remoteETag } : {} });
+  if ((res.status === 412 || res.status === 409) && depth < 2) { settings.set("libEtag", ""); return syncLibrary(depth + 1); }
+  if (!res.ok) throw await graphError(res, "OneDrive (Literatur)");
+  settings.set("libEtag", (await res.json()).eTag || ""); settings.set("libDirty", "0");
+  return changed;
+}
+
 /* ---------- Outlook-Kalender ---------- */
 function eventFor(e, colonies) {
   const colony = colonies.find(c => c.id === e.colonyId);
@@ -1501,6 +1835,7 @@ async function syncNow({ quiet = false, interactive = false } = {}) {
   try {
     changes += await syncOnce();
     if (settings.get("outlook", "1") === "1" && await syncCalendar()) changes += await syncOnce();
+    if (await syncLibrary() && route().view === "settings") renderSettings();
     settings.set("msLastSync", new Date().toISOString());
     setSyncState("ok"); ok = true;
     if (!quiet) toast("Synchronisiert ✓");
@@ -1526,6 +1861,7 @@ function refreshAfterSync() {
   else if (r.view === "colony") renderColony(r.id);
   else if (r.view === "tasks") renderTasks();
   else if (r.view === "questions") renderQuestions();
+  else if (r.view === "knowledge") renderKnowledge(true);
 }
 $("#syncBtn").addEventListener("click", () => syncNow({ interactive: true }));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && msConnected() && syncState !== "login") scheduleSync(500); });
@@ -1541,6 +1877,7 @@ async function render() {
     case "colony": return renderColony(r.id);
     case "tasks": return renderTasks();
     case "questions": return renderQuestions();
+    case "knowledge": return renderKnowledge();
     case "entry": { const e = await getOne("entries", r.id); if (!e) { setChrome("Eintrag", { back: true }); app.innerHTML = `<div class="empty">Diesen Eintrag gibt es nicht mehr.</div>`; return; } return renderEntryForm(e); }
     case "new": return renderEntryForm(null, { colony: r.colony, type: r.type });
     default: return renderHome();
