@@ -164,6 +164,7 @@
 <header>
   <button id="backBtn" class="btn btn-ghost icon-btn hidden" aria-label="Zurück">&#8592;</button>
   <h1><img src="icon-192.png" alt=""> <span id="title">Imkerbuch</span></h1>
+  <button id="syncBtn" class="btn btn-ghost icon-btn hidden" aria-label="Mit OneDrive synchronisieren" title="Mit OneDrive synchronisieren">☁️</button>
   <a id="addBtn" class="btn btn-ghost icon-btn" href="#/neu" aria-label="Eintrag hinzufügen">+</a>
   <a id="settingsBtn" class="btn btn-ghost icon-btn" href="#/einstellungen" aria-label="Einstellungen">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -180,7 +181,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "3.0.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -206,10 +207,10 @@ const METRICS = {
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("imkerbuch", 2);
+    const req = indexedDB.open("imkerbuch", 3);
     req.onupgradeneeded = () => {
       const d = req.result;
-      for (const s of ["recordings", "colonies", "entries"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries", "tombstones"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -230,8 +231,23 @@ async function tx(store, mode, fn) {
 }
 const getAll = (store) => tx(store, "readonly", s => s.getAll());
 const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
-const put = (store, obj) => tx(store, "readwrite", s => s.put(obj));
-const del = (store, id) => tx(store, "readwrite", s => s.delete(id));
+const SYNCED = new Set(["colonies", "entries", "recordings"]);
+const rawPut = (store, obj) => tx(store, "readwrite", s => s.put(obj));
+const rawDel = (store, id) => tx(store, "readwrite", s => s.delete(id));
+// put/del merken sich Änderungszeit bzw. Löschungen, damit der OneDrive-Abgleich weiß, was neuer ist
+async function put(store, obj) {
+  if (SYNCED.has(store)) obj.updatedAt = new Date().toISOString();
+  await rawPut(store, obj);
+  if (SYNCED.has(store)) scheduleSync();
+}
+async function del(store, id) {
+  const old = SYNCED.has(store) ? await getOne(store, id) : null;
+  await rawDel(store, id);
+  if (SYNCED.has(store)) {
+    await rawPut("tombstones", { id: store + ":" + id, store, itemId: id, deletedAt: new Date().toISOString(), eventId: old?.outlookEventId || null });
+    scheduleSync();
+  }
+}
 
 const settings = {
   get(k, def = "") { try { const v = localStorage.getItem("imkerbuch." + k); return v === null ? def : v; } catch { return def; } },
@@ -610,6 +626,7 @@ function setChrome(title, { back = false, tab = null, add = true } = {}) {
   $("#backBtn").classList.toggle("hidden", !back);
   $("#settingsBtn").classList.toggle("hidden", back);
   $("#addBtn").classList.toggle("hidden", !add || back);
+  $("#syncBtn").classList.toggle("hidden", back || !msConnected());
   $("#tabs").classList.toggle("hidden", !tab);
   $$("#tabs a").forEach(a => a.classList.toggle("active", a.dataset.tab === tab));
 }
@@ -1116,6 +1133,24 @@ async function renderSettings() {
     </section>
 
     <section class="card">
+      <h2>Microsoft: OneDrive & Outlook</h2>
+      ${msConnected() ? `
+        <p style="margin:0">Verbunden als <strong>${esc(settings.get("msAccount"))}</strong></p>
+        <p class="muted small" style="margin:4px 0 0">${settings.get("msLastSync") ? "Zuletzt synchronisiert: " + esc(new Date(settings.get("msLastSync")).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })) : "Noch nicht synchronisiert"}${syncState === "login" ? " · <strong>Anmeldung abgelaufen</strong>" : ""}</p>
+        <div class="row" style="margin-top:12px"><input type="checkbox" id="outlookOn" ${settings.get("outlook", "1") === "1" ? "checked" : ""}><label for="outlookOn" style="margin:0;font-weight:400;flex:1">Aufgaben mit Termin in den Outlook-Kalender eintragen</label></div>
+        <div class="row" style="margin-top:14px"><button class="btn-primary" id="msSync">Jetzt synchronisieren</button><button id="msLogout">Trennen</button></div>`
+      : `<p class="muted small" style="margin:0 0 12px">Speichert alle Daten in deinem OneDrive (Ordner „Apps“) und gleicht iPhone und PC ab. Aufgaben mit Termin erscheinen in deinem Outlook-Kalender.</p>
+        <button class="btn-primary" id="msConnect" ${msClientId() ? "" : "disabled"}>Mit Microsoft verbinden</button>
+        ${msClientId() ? "" : `<p class="muted small">Noch nicht eingerichtet: Unter „Erweitert“ fehlt die Anwendungs-ID.</p>`}`}
+      <details style="margin-top:10px"><summary>Erweitert</summary>
+        <label for="msClient" style="margin-top:4px">Anwendungs-ID (Client-ID)</label>
+        <input type="text" id="msClient" value="${esc(msClientId())}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="row" style="margin-top:8px"><button id="msClientSave" class="btn-small">Speichern</button></div>
+        <p class="muted small">Weiterleitungs-URI für die App-Registrierung:<br><code>${esc(redirectUri())}</code></p>
+      </details>
+    </section>
+
+    <section class="card">
       <h2>Meine Völker</h2>
       <p class="muted small" style="margin:0 0 6px">Mit den Namen und Spitznamen erkennt die App, über welches Volk du sprichst.</p>
       <div id="colonies">${colonies.length ? colonies.map(c => `
@@ -1180,6 +1215,19 @@ async function renderSettings() {
   $("#export").addEventListener("click", exportData);
   $("#import").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importData);
+
+  $("#msConnect")?.addEventListener("click", () => msLogin(false));
+  $("#msSync")?.addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.innerHTML = `<span class="spinner"></span> Synchronisiere…`;
+    await syncNow({ interactive: true });
+    if (route().view === "settings") renderSettings();
+  });
+  $("#msLogout")?.addEventListener("click", () => {
+    if (!confirm("Verbindung zu Microsoft trennen? Deine Daten bleiben auf diesem Gerät und in OneDrive erhalten.")) return;
+    msLogout(); setSyncState("ok"); toast("Getrennt"); renderSettings();
+  });
+  $("#outlookOn")?.addEventListener("change", (e) => { settings.set("outlook", e.target.checked ? "1" : "0"); if (e.target.checked) scheduleSync(500); });
+  $("#msClientSave").addEventListener("click", () => { settings.set("msClientId", $("#msClient").value.trim()); toast("Gespeichert"); renderSettings(); });
 }
 
 /* ---------- Sicherung ---------- */
@@ -1206,6 +1254,282 @@ async function importData(e) {
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
 }
 
+/* ---------- Microsoft: Anmeldung ---------- */
+const MS_DEFAULT_CLIENT_ID = "02fc35df-1cfa-40f0-a1aa-09396c900ca9";   // Anwendungs-ID aus der Microsoft-App-Registrierung
+// "consumers": nur private Microsoft-Konten (OneDrive/Outlook privat), verhindert Verwechslung mit Vereins-/Firmenkonten
+const MS_AUTH = "https://login.microsoftonline.com/consumers/oauth2/v2.0";
+const MS_SCOPES = "openid profile offline_access User.Read Files.ReadWrite.AppFolder Calendars.ReadWrite";
+const GRAPH = "https://graph.microsoft.com/v1.0";
+const SYNC_FILE = "imkerbuch-daten.json";
+const TZ_WIN = "W. Europe Standard Time";
+const msClientId = () => (settings.get("msClientId") || MS_DEFAULT_CLIENT_ID).trim();
+const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, "");
+const msConnected = () => !!settings.get("msAccount");
+const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const randStr = (n = 48) => b64url(crypto.getRandomValues(new Uint8Array(n)));
+function getTokens() { try { return JSON.parse(settings.get("msTokens") || "null"); } catch { return null; } }
+function needLogin() { const e = new Error("Die Anmeldung bei Microsoft ist abgelaufen."); e.needLogin = true; return e; }
+
+async function msLogin(silent = false) {
+  if (!msClientId()) { toast("Die Microsoft-Verbindung ist noch nicht eingerichtet (Anwendungs-ID fehlt).", 4000); return; }
+  const verifier = randStr(48);
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const state = randStr(16);
+  settings.set("msPkce", JSON.stringify({ verifier, state, silent, hash: location.hash || "#/" }));
+  const p = new URLSearchParams({ client_id: msClientId(), response_type: "code", redirect_uri: redirectUri(), response_mode: "query",
+    scope: MS_SCOPES, state, code_challenge: challenge, code_challenge_method: "S256" });
+  if (silent) p.set("prompt", "none");
+  const hint = settings.get("msLoginHint"); if (hint) p.set("login_hint", hint);
+  location.href = MS_AUTH + "/authorize?" + p;
+}
+function storeTokens(data) {
+  const old = getTokens() || {};
+  settings.set("msTokens", JSON.stringify({ access: data.access_token, refresh: data.refresh_token || old.refresh || null, exp: Date.now() + ((data.expires_in || 3600) - 120) * 1000 }));
+  if (data.id_token) {
+    try {
+      const p = JSON.parse(decodeURIComponent(escape(atob(data.id_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")))));
+      settings.set("msAccount", p.name || p.preferred_username || "Microsoft-Konto");
+      if (p.preferred_username) settings.set("msLoginHint", p.preferred_username);
+    } catch {}
+  }
+  if (!settings.get("msAccount")) settings.set("msAccount", "Microsoft-Konto");
+}
+// Rückkehr von der Microsoft-Anmeldung verarbeiten
+async function msHandleRedirect() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code") && !q.has("error")) return null;
+  let pk = null; try { pk = JSON.parse(settings.get("msPkce") || "null"); } catch {}
+  settings.set("msPkce", "");
+  history.replaceState(null, "", redirectUri() + (pk?.hash || "#/"));
+  if (!pk || q.get("state") !== pk.state) { toast("Die Anmeldung wurde abgebrochen."); return null; }
+  if (q.has("error")) {
+    if (pk.silent && /login_required|interaction_required|consent_required|account_selection_required/.test(q.get("error"))) { await msLogin(false); return "redirecting"; }
+    if (q.get("error") !== "access_denied") toast("Microsoft-Anmeldung fehlgeschlagen: " + String(q.get("error_description") || q.get("error")).slice(0, 160), 6000);
+    return null;
+  }
+  try {
+    const res = await fetch(MS_AUTH + "/token", { method: "POST", body: new URLSearchParams({ client_id: msClientId(), grant_type: "authorization_code",
+      code: q.get("code"), redirect_uri: redirectUri(), code_verifier: pk.verifier, scope: MS_SCOPES }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast("Anmeldung fehlgeschlagen: " + String(data.error_description || res.status).slice(0, 160), 6000); return null; }
+    storeTokens(data);
+    return "ok";
+  } catch { toast("Keine Verbindung zu Microsoft.", 4000); return null; }
+}
+async function msToken(force = false) {
+  const t = getTokens(); if (!t) throw needLogin();
+  if (!force && t.access && Date.now() < t.exp) return t.access;
+  if (!t.refresh) throw needLogin();
+  let res;
+  try { res = await fetch(MS_AUTH + "/token", { method: "POST", body: new URLSearchParams({ client_id: msClientId(), grant_type: "refresh_token", refresh_token: t.refresh, scope: MS_SCOPES }) }); }
+  catch { throw new Error("Keine Verbindung zu Microsoft."); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { settings.set("msTokens", JSON.stringify({ ...t, access: null, refresh: null })); throw needLogin(); }
+  storeTokens(data);
+  return data.access_token;
+}
+async function graph(path, { method = "GET", json, headers = {} } = {}) {
+  for (let i = 0; i < 2; i++) {
+    const token = await msToken(i > 0);
+    const h = { Authorization: "Bearer " + token, ...headers };
+    let body;
+    if (json !== undefined) { h["Content-Type"] = "application/json"; body = JSON.stringify(json); }
+    let res;
+    try { res = await fetch(GRAPH + path, { method, headers: h, body }); } catch { throw new Error("Keine Verbindung zu Microsoft."); }
+    if (res.status === 401 && i === 0) continue;
+    return res;
+  }
+}
+async function graphError(res, what) {
+  let msg = ""; try { msg = (await res.json())?.error?.message || ""; } catch {}
+  return new Error(`${what}: Fehler ${res.status}${msg ? " – " + msg.slice(0, 160) : ""}`);
+}
+function msLogout() {
+  for (const k of ["msTokens", "msAccount", "msLastSync", "msLoginHint", "msPkce"]) settings.set(k, "");
+}
+
+/* ---------- OneDrive-Abgleich ---------- */
+let syncTimer = null, syncing = false, syncAgain = false, applyingRemote = false, suppressSchedule = false, syncState = "ok";
+const stamp = (x) => x?.updatedAt || x?.createdAt || "";
+function scheduleSync(delay = 4000) {
+  if (!msConnected() || applyingRemote || suppressSchedule) return;
+  if (syncing) { syncAgain = true; return; }
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow({ quiet: true }), delay);
+}
+function setSyncState(state, msg = "") {
+  syncState = state;
+  const b = $("#syncBtn"); if (!b) return;
+  b.textContent = state === "busy" ? "🔄" : state === "ok" ? "☁️" : "⚠️";
+  b.title = state === "login" ? "Bitte erneut bei Microsoft anmelden (antippen)" : state === "error" ? "Synchronisation fehlgeschlagen: " + msg : "Mit OneDrive synchronisieren";
+}
+async function localSnapshot() {
+  const [colonies, entries, recordings, tombstones] = await Promise.all(["colonies", "entries", "recordings", "tombstones"].map(getAll));
+  return { colonies, entries, recordings, tombstones };
+}
+function mergeData(local, remote) {
+  const out = {};
+  const tombs = new Map();
+  for (const t of [...(remote?.tombstones || []), ...local.tombstones]) {
+    const prev = tombs.get(t.id);
+    tombs.set(t.id, prev ? { ...prev, ...t, deletedAt: prev.deletedAt > t.deletedAt ? prev.deletedAt : t.deletedAt, calDeleted: !!(prev.calDeleted || t.calDeleted), eventId: prev.eventId || t.eventId || null } : t);
+  }
+  for (const store of SYNCED) {
+    const map = new Map();
+    for (const r of remote?.[store] || []) map.set(r.id, r);
+    for (const l of local[store]) {
+      const r = map.get(l.id);
+      if (!r || stamp(l) >= stamp(r) || (l.audio && r.status !== "done")) map.set(l.id, l);
+    }
+    for (const t of tombs.values()) {
+      if (t.store !== store) continue;
+      const item = map.get(t.itemId);
+      if (item && stamp(item) <= t.deletedAt) map.delete(t.itemId);
+    }
+    out[store] = [...map.values()];
+  }
+  const cutoff = new Date(Date.now() - 180 * 86400000).toISOString();
+  out.tombstones = [...tombs.values()].filter(t => t.deletedAt > cutoff || (t.eventId && !t.calDeleted));
+  return out;
+}
+async function applyLocal(local, merged) {
+  let changes = 0;
+  applyingRemote = true;
+  try {
+    for (const store of [...SYNCED, "tombstones"]) {
+      const lmap = new Map(local[store].map(x => [x.id, x]));
+      const mids = new Set();
+      for (const m of merged[store]) {
+        mids.add(m.id);
+        const l = lmap.get(m.id);
+        if (l === m) continue;
+        if (!l || JSON.stringify(l) !== JSON.stringify(m)) { await rawPut(store, m); if (store !== "tombstones") changes++; }
+      }
+      for (const l of local[store]) if (!mids.has(l.id)) { await rawDel(store, l.id); if (store !== "tombstones") changes++; }
+    }
+  } finally { applyingRemote = false; }
+  return changes;
+}
+const payloadOf = (d) => ({ app: "imkerbuch", version: 3, colonies: d.colonies, entries: d.entries,
+  recordings: d.recordings.map(({ audio, ...r }) => r), tombstones: d.tombstones });
+const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
+async function downloadRemote() {
+  const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}`);
+  if (res.status === 404) return { data: null, eTag: null };
+  if (!res.ok) throw await graphError(res, "OneDrive");
+  const meta = await res.json();
+  let r2;
+  try { r2 = await fetch(meta["@microsoft.graph.downloadUrl"], { cache: "no-store" }); } catch { throw new Error("Die OneDrive-Datei konnte nicht geladen werden."); }
+  if (!r2.ok) throw new Error("Die OneDrive-Datei konnte nicht geladen werden (" + r2.status + ").");
+  return { data: await r2.json(), eTag: meta.eTag };
+}
+async function uploadRemote(payload, eTag) {
+  const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}:/content`, { method: "PUT", json: payload, headers: eTag ? { "If-Match": eTag } : {} });
+  if (res.status === 412 || res.status === 409) return "conflict";
+  if (!res.ok) throw await graphError(res, "OneDrive");
+  return "ok";
+}
+async function syncOnce() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const remote = await downloadRemote();
+    const local = await localSnapshot();
+    const merged = mergeData(local, remote.data);
+    const changes = await applyLocal(local, merged);
+    const payload = payloadOf(merged);
+    if (remote.data && canon(payload) === canon(remote.data)) return changes;
+    if ((await uploadRemote({ ...payload, savedAt: new Date().toISOString() }, remote.eTag)) === "ok") return changes;
+  }
+  throw new Error("Die Daten wurden gleichzeitig auf einem anderen Gerät geändert. Bitte erneut versuchen.");
+}
+
+/* ---------- Outlook-Kalender ---------- */
+function eventFor(e, colonies) {
+  const colony = colonies.find(c => c.id === e.colonyId);
+  const end = new Date(e.dueDate + "T12:00:00"); end.setDate(end.getDate() + 1);
+  return {
+    subject: "🐝 " + (colony ? colony.name + ": " : "") + e.text,
+    body: { contentType: "text", content: `Aufgabe aus dem Imkerbuch${colony ? " – Volk " + colony.name : ""}.\n${redirectUri()}` },
+    start: { dateTime: e.dueDate + "T00:00:00", timeZone: TZ_WIN },
+    end: { dateTime: localDate(end) + "T00:00:00", timeZone: TZ_WIN },
+    isAllDay: true, showAs: "free", isReminderOn: true,
+  };
+}
+async function syncCalendar() {
+  const [entries, colonies, tombs] = await Promise.all([getAll("entries"), getAll("colonies"), getAll("tombstones")]);
+  let changed = false;
+  suppressSchedule = true;
+  try {
+    for (const e of entries) {
+      const want = e.type === "aufgabe" && !e.done && !!e.dueDate;
+      if (want) {
+        const ev = eventFor(e, colonies);
+        const hash = JSON.stringify([ev.subject, e.dueDate]);
+        if (e.outlookEventId && e.outlookHash === hash) continue;
+        let res = null;
+        if (e.outlookEventId) {
+          res = await graph(`/me/events/${encodeURIComponent(e.outlookEventId)}`, { method: "PATCH", json: ev });
+          if (res.status === 404) { e.outlookEventId = null; res = null; }
+        }
+        if (!e.outlookEventId) res = await graph("/me/events", { method: "POST", json: ev });
+        if (!res.ok) throw await graphError(res, "Outlook");
+        e.outlookEventId = (await res.json()).id; e.outlookHash = hash;
+        await put("entries", e); changed = true;
+      } else if (e.outlookEventId) {
+        const res = await graph(`/me/events/${encodeURIComponent(e.outlookEventId)}`, { method: "DELETE" });
+        if (!res.ok && res.status !== 404) throw await graphError(res, "Outlook");
+        e.outlookEventId = null; e.outlookHash = null;
+        await put("entries", e); changed = true;
+      }
+    }
+    for (const t of tombs) {
+      if (!t.eventId || t.calDeleted) continue;
+      const res = await graph(`/me/events/${encodeURIComponent(t.eventId)}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) throw await graphError(res, "Outlook");
+      t.calDeleted = true; await rawPut("tombstones", t); changed = true;
+    }
+  } finally { suppressSchedule = false; }
+  return changed;
+}
+
+/* ---------- Abgleich starten ---------- */
+async function syncNow({ quiet = false, interactive = false } = {}) {
+  if (!msConnected()) return false;
+  if (syncing) { syncAgain = true; return false; }
+  clearTimeout(syncTimer);
+  syncing = true; setSyncState("busy");
+  let ok = false, changes = 0;
+  try {
+    changes += await syncOnce();
+    if (settings.get("outlook", "1") === "1" && await syncCalendar()) changes += await syncOnce();
+    settings.set("msLastSync", new Date().toISOString());
+    setSyncState("ok"); ok = true;
+    if (!quiet) toast("Synchronisiert ✓");
+  } catch (e) {
+    if (e.needLogin) {
+      setSyncState("login");
+      if (interactive) { syncing = false; await msLogin(true); return false; }
+      if (!quiet) toast("Bitte erneut bei Microsoft anmelden (☁️ antippen).", 4000);
+    } else {
+      setSyncState("error", e.message);
+      if (!quiet) toast("Synchronisation fehlgeschlagen: " + e.message, 5000);
+    }
+  } finally { syncing = false; }
+  if (changes) refreshAfterSync();
+  if (syncAgain) { syncAgain = false; scheduleSync(1500); }
+  return ok;
+}
+function refreshAfterSync() {
+  updateBadges();
+  const r = route();
+  if (r.view === "home" && !recorder.mr) renderHome();
+  else if (r.view === "colonies") renderColonies();
+  else if (r.view === "colony") renderColony(r.id);
+  else if (r.view === "tasks") renderTasks();
+  else if (r.view === "questions") renderQuestions();
+}
+$("#syncBtn").addEventListener("click", () => syncNow({ interactive: true }));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && msConnected() && syncState !== "login") scheduleSync(500); });
+
 /* ---------- Start ---------- */
 async function render() {
   const r = route();
@@ -1231,10 +1555,15 @@ window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDef
     let changed = false;
     if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; changed = true; }
     if (r.extraction?.status === "pending") { r.extraction = { status: "error", error: "Die Auswertung wurde unterbrochen." }; changed = true; }
-    if (changed) await put("recordings", r);
+    if (changed) await rawPut("recordings", r);
   }
+  const login = await msHandleRedirect();
+  if (login === "redirecting") return;
   render();
   updateBadges();
+  if (msConnected()) {
+    syncNow({ quiet: login !== "ok" }).then(ok => { if (login === "ok" && ok) toast("Mit Microsoft verbunden und synchronisiert ✓", 3500); });
+  }
   if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
