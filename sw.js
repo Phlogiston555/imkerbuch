@@ -1,5 +1,5 @@
 // Service Worker: lädt die App bei Netz immer frisch und hält eine Kopie für den Offline-Start bereit.
-const CACHE = "imkerbuch-v5";
+const CACHE = "imkerbuch-v6";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

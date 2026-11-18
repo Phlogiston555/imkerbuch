@@ -129,6 +129,12 @@
   .ai-text { white-space: pre-wrap; line-height: 1.55; }
   ul.src { margin: 4px 0 8px; padding-left: 18px; }
   ul.src a { word-break: break-word; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .st { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+  .st.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .st.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .st.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .st.info { color: var(--muted); background: var(--surface-2); }
   .lib-doc { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; }
 
   /* Prüfansicht */
@@ -186,7 +192,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "4.0.1";
+const APP_VERSION = "4.1.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -201,10 +207,52 @@ const TYPES = {
   frage: { label: "Frage", plural: "Fragen", icon: "❓" },
   messwert: { label: "Messwert", plural: "Messwerte", icon: "📊" },
   wissen: { label: "Learning", plural: "Learnings", icon: "🧠" },
+  status: { label: "Status", plural: "Status", icon: "🏷️" },
 };
+// Status eines Volks: Königin/Verhalten/Beute je ein Wert, Probleme beliebig viele (setzen/aufheben)
+const STATUS = {
+  koenigin: { label: "Königin", values: { weiselrichtig: "weiselrichtig", pot_weisellos: "potentiell weisellos", weisellos: "weisellos", drohnenbruetig: "drohnenbrütig", umweiselung: "Umweiselung läuft" } },
+  verhalten: { label: "Verhalten", values: { sanft: "sanft", nervoes: "nervös", aggressiv: "aggressiv" } },
+  problem: { label: "Problem", values: { schwarmstimmung: "Schwarmstimmung", futtermangel: "Futtermangel", krankheitsverdacht: "Krankheitsverdacht", in_behandlung: "in Behandlung" } },
+  beute: { label: "Beute", values: { normal: "normale Beute", ableger: "Ablegerkasten" } },
+};
+const STATUS_SEV = { weiselrichtig: "ok", pot_weisellos: "warn", umweiselung: "warn", weisellos: "err", drohnenbruetig: "err",
+  sanft: "ok", nervoes: "warn", aggressiv: "err", schwarmstimmung: "warn", futtermangel: "warn", krankheitsverdacht: "err", in_behandlung: "info" };
+function statusText(key, value, action) {
+  const def = STATUS[key]; if (!def) return "";
+  const v = def.values[value] || value;
+  if (key === "problem") return action === "clear" ? `Problem behoben: ${v}` : `Problem: ${v}`;
+  return `${def.label}: ${v}`;
+}
+function statusKeyOptions(sel) { return Object.entries(STATUS).map(([k, d]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${d.label}</option>`).join(""); }
+function statusValOptions(key, val, action) {
+  const def = STATUS[key] || STATUS.koenigin;
+  const cur = (action === "clear" ? "-" : "") + (val || "");
+  let o = Object.entries(def.values).map(([k, l]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(l)}</option>`).join("");
+  if (key === "problem") o += Object.entries(def.values).map(([k, l]) => `<option value="-${k}" ${"-" + k === cur ? "selected" : ""}>${esc(l)} – behoben</option>`).join("");
+  return o;
+}
+function currentStatus(entries) {
+  const st = { koenigin: null, verhalten: null, beute: null, problem: new Set() };
+  const list = entries.filter(e => e.type === "status" && STATUS[e.statusKey]).sort((a, b) => sortEntries(b, a));
+  for (const e of list) {
+    if (e.statusKey === "problem") { if (e.statusAction === "clear") st.problem.delete(e.statusValue); else st.problem.add(e.statusValue); }
+    else st[e.statusKey] = e.statusValue;
+  }
+  return st;
+}
+function statusTiles(st) {
+  const tile = (key, v) => `<span class="st ${STATUS_SEV[v] || "info"}">${esc(STATUS[key].values[v] || v)}</span>`;
+  const parts = [];
+  if (st.koenigin) parts.push(tile("koenigin", st.koenigin));
+  if (st.verhalten) parts.push(tile("verhalten", st.verhalten));
+  for (const p of st.problem) parts.push(tile("problem", p));
+  return parts.length ? `<div class="tiles">${parts.join("")}</div>` : "";
+}
 const METRICS = {
   koenigin: { label: "Königin (Jahrgang)", short: "Königin" },
-  zargen: { label: "Zargen (Anzahl)", short: "Zargen" },
+  brutraum: { label: "Brutraum (Zargen)", short: "Brutraum", unit: "Zargen" },
+  honigraum: { label: "Honigraum (Zargen)", short: "Honigraum", unit: "Zargen" },
   gewicht: { label: "Gewicht (kg)", short: "Gewicht", unit: "kg" },
   varroa: { label: "Varroafall (Milben)", short: "Varroafall", unit: "Milben" },
 };
@@ -300,6 +348,8 @@ function toast(msg, ms = 2600) {
 function fmtMetric(metric, value) {
   if (value === null || value === undefined || value === "") return "";
   if (metric === "koenigin") return `Königin ${value}`;
+  if (metric === "brutraum") return `Brutraum ${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
+  if (metric === "honigraum") return `Honigraum ${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
   if (metric === "zargen") return `${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
   if (metric === "gewicht") return `${fmtNum(value)} kg`;
   if (metric === "varroa") return `Varroafall ${fmtNum(value)}`;
@@ -383,10 +433,19 @@ async function chatModel(forceRefresh = false) {
     return pick;
   } catch { return cached || PREFERRED_CHAT_MODELS[0]; }
 }
-function analysisPrompt(colonies, when) {
+function describeStatus(st) {
+  const p = [];
+  if (st.beute) p.push("Beute=" + st.beute);
+  if (st.koenigin) p.push("koenigin=" + st.koenigin);
+  if (st.verhalten) p.push("verhalten=" + st.verhalten);
+  if (st.problem.size) p.push("problem=" + [...st.problem].join("+"));
+  return p.length ? " – aktueller Status: " + p.join(", ") : " – noch kein Status";
+}
+function analysisPrompt(colonies, when, entries = []) {
   const d = new Date(when);
   const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
-  const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}`).join("\n") : "(noch keine eingetragen)";
+  const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}${describeStatus(currentStatus(entries.filter(e => e.colonyId === c.id)))}`).join("\n") : "(noch keine eingetragen)";
+  const opts = (k) => Object.keys(STATUS[k].values).map(v => `"${v}"`).join(", ");
   return `Du bist Assistent einer Hobby-Imkerei. Du bekommst das Transkript einer Sprachnotiz, die bei der Durchsicht der Bienenvölker aufgenommen wurde.
 Aufnahmedatum: ${localDate(d)} (${wd}).
 
@@ -398,7 +457,13 @@ Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
 - "aufgabe": etwas, das noch erledigt werden soll. "dueDate" als YYYY-MM-DD, wenn ein Zeitpunkt genannt oder ableitbar ist (vom Aufnahmedatum aus gerechnet; "nächste Woche" = Montag der Folgewoche, "morgen", "in drei Tagen" usw.). Sonst null.
 - "frage": eine offene Frage, die der Imker klären möchte.
 - "wissen": ein Learning, also eine Erkenntnis oder Erfahrung, die sich der Imker für die Zukunft merken will (z. B. "Merke: …", "Hab gelernt, dass …", "Nächstes Jahr früher …", "Fehler war …", "Das hat gut funktioniert …"). "text" als allgemeingültige, eigenständig verständliche Regel formulieren (z. B. "Honigraum erst aufsetzen, wenn 7 Waben besetzt sind"). Gehört es erkennbar zu einem Volk, dieses zuordnen, sonst null.
-- "messwert": ein Zahlenwert mit "metric" = "zargen" (Anzahl Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
+- "status": ändert den Zustand eines Volks. Felder "statusKey", "statusValue", "statusAction":
+  - "koenigin": ${opts("koenigin")}. Beispiele: keine Königin, keine Stifte und keine offene Brut gesehen → "pot_weisellos"; Königin oder Stifte gesehen → "weiselrichtig"; nur Buckelbrut/mehrere Eier pro Zelle → "drohnenbruetig"; neue Königin zugesetzt oder Nachschaffung → "umweiselung".
+  - "verhalten": ${opts("verhalten")}. Z. B. "stechlustig", "unruhig", "laufen von der Wabe" → passend einordnen.
+  - "problem": ${opts("problem")}. "statusAction": "set", wenn das Problem neu besteht, "clear", wenn es laut Notiz nicht mehr besteht (z. B. Behandlung beendet, Schwarmstimmung vorbei, genug Futter).
+  - "beute": ${opts("beute")}. Z. B. Ableger im Ablegerkasten gebildet → "ableger"; in eine normale Beute umgesetzt/umlogiert → "normal".
+  Lege einen Status nur an, wenn er sich gegenüber dem aktuellen Status ändert oder neu ist. Status gibt es nur für ein bestimmtes Volk. Die zugrunde liegende Beobachtung zusätzlich als "beobachtung" anlegen.
+- "messwert": ein Zahlenwert mit "metric" = "brutraum" (Anzahl Brutraum-Zargen), "honigraum" (Anzahl Honigraum-Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
 
 Regeln:
 - Ordne jeden Eintrag dem Volk zu, über das gerade gesprochen wird. Ein Volkswechsel wird meist angesagt ("Jetzt Volk X"). Alles danach gehört zu diesem Volk, bis ein anderes genannt wird.
@@ -410,7 +475,7 @@ Regeln:
 - Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
 
 Antworte ausschließlich mit JSON in genau dieser Form:
-{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"zargen|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null"}]}`;
+{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen|status","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"brutraum|honigraum|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null","statusKey":"koenigin|verhalten|problem|beute oder null","statusValue":"… oder null","statusAction":"set|clear oder null"}]}`;
 }
 function parseJsonLoose(s) {
   s = String(s || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -422,7 +487,7 @@ function parseJsonLoose(s) {
 async function analyze(text, when) {
   if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt.");
   const colonies = await getAll("colonies");
-  const sys = analysisPrompt(colonies, when);
+  const sys = analysisPrompt(colonies, when, await getAll("entries"));
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     const model = await chatModel(attempt > 0);
@@ -460,6 +525,13 @@ function normalizeItems(items, colonies) {
       const v = typeof it.value === "number" ? it.value : parseFloat(String(it.value ?? "").replace(",", "."));
       s.value = isFinite(v) ? v : null;
       if (!s.metric || s.value === null) { s.type = "beobachtung"; }
+    }
+    if (it.type === "status") {
+      const def = STATUS[it.statusKey];
+      if (!def || !def.values[it.statusValue] || assign === GENERAL) continue;
+      s.statusKey = it.statusKey; s.statusValue = it.statusValue;
+      s.statusAction = it.statusKey === "problem" && it.statusAction === "clear" ? "clear" : "set";
+      s.text = statusText(s.statusKey, s.statusValue, s.statusAction);
     }
     if (it.type === "aufgabe" && /^\d{4}-\d{2}-\d{2}$/.test(it.dueDate || "")) s.dueDate = it.dueDate;
     if (!s.text && s.type === "messwert") s.text = METRICS[s.metric].short + " " + fmtNum(s.value);
@@ -750,6 +822,10 @@ function suggestionRow(s, colonies, unknownNames) {
     <div class="sg-sub f-due-row ${s.type === "aufgabe" ? "" : "hidden"}">
       <span class="lbl">Fällig am</span><input type="date" class="f-due" value="${esc(s.dueDate || "")}">
     </div>
+    <div class="sg-sub f-status-row ${s.type === "status" ? "" : "hidden"}">
+      <select class="f-skey" aria-label="Statusart">${statusKeyOptions(s.statusKey || "koenigin")}</select>
+      <select class="f-sval" aria-label="Status">${statusValOptions(s.statusKey || "koenigin", s.statusValue, s.statusAction)}</select>
+    </div>
   </div>`;
 }
 function readSuggestions(rec) {
@@ -763,6 +839,11 @@ function readSuggestions(rec) {
     const v = parseFloat(String($(".f-value", el).value).replace(",", "."));
     s.value = s.type === "messwert" && isFinite(v) ? v : null;
     s.dueDate = s.type === "aufgabe" ? ($(".f-due", el).value || null) : null;
+    if (s.type === "status") {
+      const sv = $(".f-sval", el).value;
+      s.statusKey = $(".f-skey", el).value; s.statusAction = sv.startsWith("-") ? "clear" : "set"; s.statusValue = sv.replace(/^-/, "");
+      if (!s.text) s.text = statusText(s.statusKey, s.statusValue, s.statusAction);
+    }
   }
 }
 let saveSgTimer;
@@ -771,7 +852,11 @@ function wireSuggestionRows(rec) {
     $(".f-type", el).addEventListener("change", (e) => {
       $(".f-metric-row", el).classList.toggle("hidden", e.target.value !== "messwert");
       $(".f-due-row", el).classList.toggle("hidden", e.target.value !== "aufgabe");
+      $(".f-status-row", el).classList.toggle("hidden", e.target.value !== "status");
     });
+    const syncStatusText = () => { const sv = $(".f-sval", el).value; $(".f-text", el).value = statusText($(".f-skey", el).value, sv.replace(/^-/, ""), sv.startsWith("-") ? "clear" : "set"); };
+    $(".f-skey", el).addEventListener("change", (e) => { $(".f-sval", el).innerHTML = statusValOptions(e.target.value); syncStatusText(); });
+    $(".f-sval", el).addEventListener("change", syncStatusText);
     $(".f-inc", el).addEventListener("change", (e) => el.classList.toggle("off", !e.target.checked));
     el.addEventListener("input", () => { clearTimeout(saveSgTimer); saveSgTimer = setTimeout(() => { readSuggestions(rec); put("recordings", rec); }, 500); });
     el.addEventListener("change", () => { readSuggestions(rec); put("recordings", rec); });
@@ -810,6 +895,10 @@ async function applyReview(rec) {
       source: "voice", recordingId: rec.id, done: false };
     if (s.type === "messwert") { e.metric = s.metric; e.value = s.value; }
     if (s.type === "aufgabe") e.dueDate = s.dueDate || null;
+    if (s.type === "status") {
+      if (!colonyId) continue; // Status gibt es nur für ein bestimmtes Volk
+      e.statusKey = s.statusKey; e.statusValue = s.statusValue; e.statusAction = s.statusAction;
+    }
     await put("entries", e); ids.push(e.id);
   }
   rec.extraction.status = "done"; rec.extraction.appliedAt = new Date().toISOString(); rec.extraction.entryIds = ids;
@@ -961,11 +1050,14 @@ async function renderColonies() {
     const openT = es.filter(e => e.type === "aufgabe" && !e.done).length;
     const openQ = es.filter(e => e.type === "frage" && !e.done).length;
     const last = es.sort(sortEntries)[0];
-    const vals = Object.keys(METRICS).filter(m => v[m]).map(m => fmtMetric(m, v[m].value));
+    const st = id ? currentStatus(es) : null;
+    const isAbleger = st?.beute === "ableger";
+    const vals = (isAbleger ? ["Ablegerkasten"] : []).concat(Object.keys(METRICS).filter(m => v[m] && !(isAbleger && (m === "brutraum" || m === "honigraum"))).map(m => fmtMetric(m, v[m].value)));
     const info = [openT ? `${openT} offene Aufgabe${openT === 1 ? "" : "n"}` : "", openQ ? `${openQ} Frage${openQ === 1 ? "" : "n"}` : ""].filter(Boolean);
     return `<a class="card colony-card" href="#/volk/${encodeURIComponent(id || GENERAL)}">
       <h2>${esc(name)} <span class="muted">›</span></h2>
       ${sub ? `<div class="muted small">${esc(sub)}</div>` : ""}
+      ${st ? statusTiles(st) : ""}
       ${vals.length ? `<div class="small" style="margin-top:6px">${esc(vals.join(" · "))}</div>` : ""}
       <div class="muted small" style="margin-top:4px">${info.length ? esc(info.join(" · ")) + " · " : ""}${last ? "zuletzt " + fmtShort(last.date) : "noch keine Einträge"}</div></a>`;
   };
@@ -986,10 +1078,16 @@ async function renderColony(id) {
   const v = currentValues(all);
   let html = "";
   if (!isGeneral) {
-    html += `<section class="card"><div class="values">${Object.entries(METRICS).map(([m, def]) => {
+    const st = currentStatus(all);
+    const isAbleger = st.beute === "ableger";
+    const tiles = statusTiles(st);
+    html += `<section class="card">${tiles ? tiles.replace('class="tiles"', 'class="tiles" style="margin:0 0 12px"') : ""}<div class="values">`;
+    if (st.beute) html += `<div class="val"><span>Beute</span><b>${esc(STATUS.beute.values[st.beute])}</b><span>&nbsp;</span></div>`;
+    html += Object.entries(METRICS).filter(([m]) => !(isAbleger && (m === "brutraum" || m === "honigraum"))).map(([m, def]) => {
       const e = v[m];
-      return `<div class="val"><span>${def.short}</span><b>${e ? esc(m === "koenigin" ? e.value : fmtNum(e.value) + (def.unit ? " " + def.unit : "")) : "–"}</b><span>${e ? "am " + fmtShort(e.date) : "noch kein Wert"}</span></div>`;
-    }).join("")}</div></section>`;
+      const unit = def.unit === "Zargen" && Number(e?.value) === 1 ? "Zarge" : def.unit;
+      return `<div class="val"><span>${def.short}</span><b>${e ? esc(m === "koenigin" ? e.value : fmtNum(e.value) + (unit ? " " + unit : "")) : "–"}</b><span>${e ? "am " + fmtShort(e.date) : "noch kein Wert"}</span></div>`;
+    }).join("") + `</div></section>`;
   }
   html += `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu/${encodeURIComponent(id)}">+ Eintrag</a></div>`;
   const filters = [["alle", "Alle"], ...Object.entries(TYPES).map(([k, t]) => [k, t.plural])];
@@ -1093,6 +1191,11 @@ async function renderEntryForm(existing, preset = {}) {
     <div id="rowDue" class="${e.type === "aufgabe" ? "" : "hidden"}">
       <label for="eDue">Fällig am</label><input type="date" id="eDue" value="${esc(e.dueDate || "")}">
     </div>
+    <div id="rowStatus" class="${e.type === "status" ? "" : "hidden"}">
+      <label>Status</label>
+      <div class="sg-sub"><select id="eSKey">${statusKeyOptions(e.statusKey || "koenigin")}</select>
+      <select id="eSVal">${statusValOptions(e.statusKey || "koenigin", e.statusValue, e.statusAction)}</select></div>
+    </div>
     <div id="rowAnswer" class="${e.type === "frage" ? "" : "hidden"}">
       <label for="eAnswer">Antwort / Notiz</label><textarea id="eAnswer" rows="3">${esc(e.answer || "")}</textarea>
     </div>
@@ -1114,10 +1217,12 @@ async function renderEntryForm(existing, preset = {}) {
     const t = typeSel.value;
     $("#rowMetric").classList.toggle("hidden", t !== "messwert");
     $("#rowDue").classList.toggle("hidden", t !== "aufgabe");
+    $("#rowStatus").classList.toggle("hidden", t !== "status");
     $("#rowAnswer").classList.toggle("hidden", t !== "frage");
     $("#rowDone").classList.toggle("hidden", !(t === "aufgabe" || t === "frage"));
     $("#eDoneLbl").textContent = t === "frage" ? "Beantwortet" : "Erledigt";
   });
+  $("#eSKey").addEventListener("change", (ev) => { $("#eSVal").innerHTML = statusValOptions(ev.target.value); });
   if (isNew) $("#eText").focus();
   $("#eSave").addEventListener("click", async () => {
     const t = typeSel.value;
@@ -1125,7 +1230,13 @@ async function renderEntryForm(existing, preset = {}) {
     const out = { ...(latest || existing || { id: uid(), createdAt: new Date().toISOString(), source: "manual" }) };
     out.type = t; out.colonyId = $("#eColony").value || null; out.text = $("#eText").value.trim();
     out.date = $("#eDate").value || todayStr();
-    delete out.metric; delete out.value; delete out.dueDate;
+    delete out.metric; delete out.value; delete out.dueDate; delete out.statusKey; delete out.statusValue; delete out.statusAction;
+    if (t === "status") {
+      if (!out.colonyId) { toast("Ein Status braucht ein Volk."); return; }
+      const sv = $("#eSVal").value;
+      out.statusKey = $("#eSKey").value; out.statusAction = sv.startsWith("-") ? "clear" : "set"; out.statusValue = sv.replace(/^-/, "");
+      if (!out.text) out.text = statusText(out.statusKey, out.statusValue, out.statusAction);
+    }
     if (t === "messwert") {
       const v = parseFloat(String($("#eValue").value).replace(",", "."));
       if (!isFinite(v)) { toast("Bitte einen Zahlenwert eintragen."); return; }
@@ -1893,6 +2004,10 @@ window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDef
     if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; changed = true; }
     if (r.extraction?.status === "pending") { r.extraction = { status: "error", error: "Die Auswertung wurde unterbrochen." }; changed = true; }
     if (changed) await rawPut("recordings", r);
+  }
+  // Ab 4.1: Zargen getrennt nach Brut- und Honigraum. Alte Gesamtzahl wird als Brutraum übernommen.
+  for (const e of await getAll("entries")) {
+    if (e.type === "messwert" && e.metric === "zargen") { e.metric = "brutraum"; e.text = fmtMetric("brutraum", e.value); await put("entries", e); }
   }
   const login = await msHandleRedirect();
   if (login === "redirecting") return;
