@@ -216,7 +216,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "4.3.0";
+const APP_VERSION = "4.4.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -288,10 +288,10 @@ const METRICS = {
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("imkerbuch", 6);
+    const req = indexedDB.open("imkerbuch", 7);
     req.onupgradeneeded = () => {
       const d = req.result;
-      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks", "items", "queens"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks", "items", "queens", "reviews"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -312,7 +312,7 @@ async function tx(store, mode, fn) {
 }
 const getAll = (store) => tx(store, "readonly", s => s.getAll());
 const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
-const SYNCED = new Set(["colonies", "entries", "recordings", "items", "queens"]);
+const SYNCED = new Set(["colonies", "entries", "recordings", "items", "queens", "reviews"]);
 const rawPut = (store, obj) => tx(store, "readwrite", s => s.put(obj));
 const rawDel = (store, id) => tx(store, "readwrite", s => s.delete(id));
 const putMany = (store, arr) => tx(store, "readwrite", s => { for (const x of arr) s.put(x); });
@@ -772,6 +772,8 @@ function route() {
     case "koenigin": return { view: "queen", id: p[1] || "neu", colony: p[2] || "" };
     case "stammbaum": return { view: "pedigree" };
     case "archiv": return { view: "archive" };
+    case "frag": return { view: "ask" };
+    case "rueckblick": return { view: "review" };
     case "eintrag": return { view: "entry", id: p[1] };
     case "neu": return { view: "new", colony: p[1] || "", type: p[2] || "" };
     default: return { view: "home", tab: "notizen" };
@@ -1340,7 +1342,8 @@ async function renderKnowledge(fromSync = false) {
   setChrome("Wissen", { tab: "wissen" });
   const colonies = await getAll("colonies");
   const all = (await getAll("entries")).filter(e => e.type === "wissen").sort(sortEntries);
-  let html = `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//wissen">+ Learning</a></div>
+  let html = `<div class="row" style="margin-bottom:10px"><a class="btn" href="#/frag">💬 Frag dein Imkerbuch</a><a class="btn" href="#/rueckblick">📅 Saisonrückblick</a></div>
+    <div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu//wissen">+ Learning</a></div>
     <p class="muted small">Deine eigenen Erfahrungen. Die KI erkennt sie in Sprachnotizen, etwa bei „Merke: …“ oder „Hab gelernt, dass …“, und berücksichtigt sie vorrangig bei Antwortvorschlägen.</p>`;
   if (all.length) html += `<input type="search" id="kSearch" placeholder="Learnings durchsuchen…" value="${esc(knowTerm)}" autocomplete="off" style="margin-bottom:8px">`;
   html += `<div id="kList"></div>`;
@@ -1758,6 +1761,176 @@ async function renderArchive() {
     : `<div class="empty">Keine archivierten Völker.</div>`;
 }
 
+/* ---------- KI-Hilfen: Aufruf mit Wartepause bei Limit, kompakte Datenzeilen ---------- */
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function llm(messages, { temperature = 0.3, onWait } = {}) {
+  if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt (Einstellungen).");
+  const model = await chatModel();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const body = { model, temperature, messages };
+    if (/gpt-oss/.test(model)) body.reasoning_effort = "low";
+    let res;
+    try { res = await fetch(GROQ_URL + "/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + groqKey(), "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+    catch { throw new Error("Keine Verbindung zur KI."); }
+    if (res.status === 429 && attempt < 3) {
+      const wait = Math.min(60, parseFloat(res.headers.get("retry-after")) || 20);
+      onWait?.(wait); await sleep(wait * 1000 + 500); continue;
+    }
+    if (!res.ok) throw await groqError(res);
+    const d = await res.json();
+    return String(d.choices?.[0]?.message?.content || "").replace(/\*\*(.+?)\*\*/g, "$1").trim();
+  }
+  throw new Error("Die KI ist gerade ausgelastet. Bitte später erneut versuchen.");
+}
+function entryLine(e, colonies) {
+  const c = e.colonyId ? colonyLabel(e.colonyId, colonies) : "Allgemein";
+  let extra = "";
+  if (e.type === "aufgabe") extra = e.done ? " [erledigt]" : e.dueDate ? ` [offen, fällig ${e.dueDate}]` : " [offen]";
+  if (e.type === "frage") extra = e.answer ? ` → Antwort: ${e.answer.slice(0, 200).replace(/\s+/g, " ")}` : e.done ? " [beantwortet]" : "";
+  if (e.type === "behandlung") extra = ` [${e.itemName || ""}, ${fmtQty(e.qty || 0, e.unit)}, Charge ${e.charge || "-"}]`;
+  return `${e.date} | ${c} | ${TYPES[e.type]?.label || e.type} | ${e.text}${extra}`;
+}
+function colonyOverview(colonies, entries, queens) {
+  return colonies.map(c => {
+    const es = entries.filter(e => e.colonyId === c.id);
+    const v = currentValues(es), st = currentStatus(es);
+    const q = queens.find(x => x.colonyId === c.id && x.status !== "ausgeschieden");
+    const parts = [];
+    if (c.archived) parts.push(`ARCHIVIERT (${c.archiveReason || ""}${c.archivedAt ? ", " + c.archivedAt : ""})`);
+    if (c.origin) parts.push(`entstanden ${c.origin.date || ""} als ${C_ORIGINS[c.origin.type] || ""}${(c.origin.parentIds || []).length ? " von " + c.origin.parentIds.map(p => colonyLabel(p, colonies)).join(", ") : ""}`);
+    if (q) parts.push(`Königin ${q.label}, ${Q_ORIGINS[q.origin]}${q.line ? ", " + q.line : ""}`);
+    const s = [st.koenigin && STATUS.koenigin.values[st.koenigin], st.verhalten && STATUS.verhalten.values[st.verhalten], ...[...st.problem].map(p => STATUS.problem.values[p]), st.beute && STATUS.beute.values[st.beute]].filter(Boolean);
+    if (s.length) parts.push("Status: " + s.join(", "));
+    const vals = Object.keys(METRICS).filter(m => v[m]).map(m => `${fmtMetric(m, v[m].value)} (${v[m].date})`);
+    if (vals.length) parts.push(vals.join(", "));
+    return `- ${c.name}: ${parts.join("; ") || "keine Angaben"}`;
+  }).join("\n");
+}
+const MAX_CTX = 14000; // Zeichen; das kostenlose Groq-Limit liegt bei ca. 8000 Tokens pro Minute
+
+/* ---------- Frag dein Imkerbuch ---------- */
+function askHistory() { try { return JSON.parse(settings.get("askHistory") || "[]"); } catch { return []; } }
+async function askBook(question) {
+  const [colonies, entries, queens, items] = await Promise.all([getAll("colonies"), getAll("entries"), getAll("queens"), getAll("items")]);
+  const lines = entries.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(e => ({ e, line: entryLine(e, colonies) }));
+  let selected = lines;
+  if (lines.reduce((s, l) => s + l.line.length + 1, 0) > MAX_CTX) {
+    const qn = normWord(question);
+    const mentioned = colonies.filter(c => [c.name, ...(c.aliases || [])].some(n => n && qn.includes(normWord(n))));
+    const keep = new Set(rankItems(lines.map(l => ({ ...l, ...indexText(l.line) })), question, 80, 0.15).map(x => x.e.id));
+    lines.filter(l => mentioned.some(c => c.id === l.e.colonyId)).slice(-80).forEach(l => keep.add(l.e.id));
+    lines.slice(-30).forEach(l => keep.add(l.e.id));
+    selected = lines.filter(l => keep.has(l.e.id));
+    while (selected.length && selected.reduce((s, l) => s + l.line.length + 1, 0) > MAX_CTX) selected.shift();
+  }
+  const inv = items.map(i => `- ${i.name}: ${fmtQty(itemStock(i), i.unit)}${i.isMed ? " (Arzneimittel; Chargen: " + (i.batches || []).filter(b => b.qty > 0).map(b => `${b.charge || "-"} MHD ${b.mhd || "-"}`).join(", ") + ")" : ""}`).join("\n");
+  const sys = `Du beantwortest Fragen eines Hobby-Imkers ausschließlich anhand seiner eigenen Aufzeichnungen aus der App „Imkerbuch“. Heute ist ${todayStr()}.
+Antworte kurz und konkret auf Deutsch. Nenne Datum und Volk der Einträge, auf die du dich stützt. Rechne bei Bedarf (z. B. Tage seit der letzten Behandlung, Anzahl Ableger).
+Wenn die Aufzeichnungen die Frage nicht beantworten, sag das ehrlich und erfinde nichts. Kein Fachwissen von außen, außer zur Einordnung, und dann als solches gekennzeichnet. Keine Tabellen.`;
+  const user = `Völker:\n${colonyOverview(colonies, entries, queens)}\n\n${inv ? "Lager:\n" + inv + "\n\n" : ""}Aufzeichnungen (Datum | Volk | Art | Text)${selected.length < lines.length ? `, Auswahl ${selected.length} von ${lines.length}` : ""}:\n${selected.map(l => l.line).join("\n") || "(noch keine)"}\n\nFrage: ${question}`;
+  return llm([{ role: "system", content: sys }, { role: "user", content: user }], { temperature: 0.2 });
+}
+async function renderAsk() {
+  setChrome("Frag dein Imkerbuch", { back: true });
+  const hist = askHistory();
+  app.innerHTML = `<section class="card">
+      <p class="muted small" style="margin:0 0 8px">Frag nach allem, was in deinen Notizen steht, z. B. „Wann habe ich Hertha zuletzt behandelt?“, „Welche Völker waren dieses Jahr aggressiv?“ oder „Was habe ich letzten Mai gemacht?“. Tipp: Mit der Mikrofon-Taste der iPhone-Tastatur kannst du die Frage diktieren.</p>
+      <textarea id="askQ" rows="3" placeholder="Deine Frage…"></textarea>
+      <div class="row" style="margin-top:10px"><button class="btn-primary" id="askGo">Fragen</button>${hist.length ? `<span class="grow"></span><button class="btn-ghost btn-small" id="askClear">Verlauf leeren</button>` : ""}</div>
+    </section><div id="askOut"></div>`;
+  const draw = () => {
+    $("#askOut").innerHTML = askHistory().map(h => `<section class="card"><div class="muted small">${fmtShort(h.at.slice(0, 10))}, ${fmtTime(h.at)}</div>
+      <div style="font-weight:600;margin:4px 0 8px">${esc(h.q)}</div>${h.error ? `<div class="banner err">${esc(h.error)}</div>` : `<div class="ai-text">${esc(h.a)}</div>`}</section>`).join("");
+  };
+  draw();
+  $("#askClear")?.addEventListener("click", () => { settings.set("askHistory", "[]"); renderAsk(); });
+  $("#askGo").addEventListener("click", async () => {
+    const q = $("#askQ").value.trim(); if (!q) { toast("Bitte eine Frage eingeben."); return; }
+    const btn = $("#askGo"); btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Suche in deinen Notizen…`;
+    const item = { q, at: new Date().toISOString() };
+    try { item.a = await askBook(q); } catch (e) { item.error = e.message; }
+    settings.set("askHistory", JSON.stringify([item, ...askHistory()].slice(0, 20)));
+    if (route().view !== "ask") return;
+    $("#askQ").value = ""; btn.disabled = false; btn.textContent = "Fragen"; draw();
+  });
+}
+
+/* ---------- Saisonrückblick ---------- */
+let reviewYear = "";
+async function generateReview(year, onProgress) {
+  const [colonies, entries, queens] = await Promise.all([getAll("colonies"), getAll("entries"), getAll("queens")]);
+  const ye = entries.filter(e => (e.date || "").startsWith(year)).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  if (!ye.length) throw new Error(`Für ${year} gibt es noch keine Einträge.`);
+  const fit = (list, max) => {
+    let out = list.map(e => entryLine(e, colonies));
+    if (out.join("\n").length <= max) return out.join("\n");
+    out = list.filter(e => e.type !== "beobachtung").map(e => entryLine(e, colonies)); // erst Beobachtungen weglassen
+    const obs = list.filter(e => e.type === "beobachtung").map(e => entryLine(e, colonies));
+    while (obs.length && (out.join("\n").length + obs.join("\n").length) > max) obs.splice(0, Math.ceil(obs.length / 4));
+    const all = [...out, ...obs].sort();
+    while (all.join("\n").length > max) all.shift();
+    return all.join("\n");
+  };
+  const wait = (s) => onProgress?.(`Kurze Pause wegen des kostenlosen KI-Limits (${Math.round(s)} s)…`);
+  const involved = colonies.filter(c => ye.some(e => e.colonyId === c.id));
+  const parts = [];
+  for (const [i, c] of involved.entries()) {
+    onProgress?.(`Volk ${i + 1} von ${involved.length}: ${c.name}…`);
+    const text = await llm([
+      { role: "system", content: `Du fasst die Imker-Saison ${year} eines einzelnen Bienenvolks zusammen, ausschließlich anhand der Aufzeichnungen. Deutsch, höchstens 120 Wörter, Fließtext ohne Überschrift. Inhalt: Entwicklung über das Jahr, Königin, Gesundheit und Varroa inkl. Behandlungen, Besonderheiten (Schwarm, Ableger, Probleme), Ergebnis. Nichts erfinden.` },
+      { role: "user", content: `Volk: ${c.name}\n${colonyOverview([c], entries, queens)}\n\nAufzeichnungen ${year}:\n${fit(ye.filter(e => e.colonyId === c.id), 8000)}` },
+    ], { onWait: wait });
+    parts.push({ id: c.id, name: c.name, text });
+    await sleep(1500);
+  }
+  onProgress?.("Gesamtrückblick wird geschrieben…");
+  const stats = {
+    voelker: involved.length, ableger: ye.filter(e => e.eventType === "ableger").length, verluste: ye.filter(e => e.eventType === "eingegangen").length,
+    behandlungen: ye.filter(e => e.type === "behandlung").length, offeneAufgaben: ye.filter(e => e.type === "aufgabe" && !e.done).length,
+  };
+  const learnings = ye.filter(e => e.type === "wissen").map(e => "- " + e.text).join("\n");
+  const general = fit(ye.filter(e => !e.colonyId || !colonies.some(c => c.id === e.colonyId)), 3000);
+  const summary = await llm([
+    { role: "system", content: `Du schreibst den Saisonrückblick ${year} für den ganzen Bienenstand eines Hobby-Imkers, ausschließlich anhand der gelieferten Zusammenfassungen und Daten. Deutsch, höchstens 300 Wörter. Gliederung mit diesen Überschriften, jeweils in einer eigenen Zeile mit "## " davor: "## Überblick", "## Was gut lief", "## Was nicht so gut lief", "## Learnings", "## Ideen für ${Number(year) + 1}". Die Ideen leitest du aus den Daten ab und kennzeichnest sie als Vorschläge. Nichts erfinden, keine Tabellen.` },
+    { role: "user", content: `Kennzahlen: ${JSON.stringify(stats)}\n\nVölker:\n${parts.map(p => `### ${p.name}\n${p.text}`).join("\n\n")}\n\nEigene Learnings ${year}:\n${learnings || "(keine)"}\n\nAllgemeine Einträge:\n${general || "(keine)"}` },
+  ], { onWait: wait });
+  const rev = { id: "review-" + year, year, text: summary, colonies: parts, stats, createdAt: new Date().toISOString() };
+  await put("reviews", rev);
+  return rev;
+}
+function mdLite(text) {
+  return esc(text).split("\n").map(l => /^#{2,3}\s+/.test(l) ? `<h3 style="margin:14px 0 4px;font-size:16px">${l.replace(/^#{2,3}\s+/, "")}</h3>` : l.replace(/^[-*]\s+/, "• ")).join("\n")
+    .replace(/\n(?=<h3)/g, "").replace(/(<\/h3>)\n/g, "$1");
+}
+async function renderReview() {
+  setChrome("Saisonrückblick", { back: true });
+  const [entries, reviews] = await Promise.all([getAll("entries"), getAll("reviews")]);
+  const years = [...new Set([...entries.map(e => (e.date || "").slice(0, 4)), ...reviews.map(r => r.year)].filter(Boolean))].sort().reverse();
+  if (!reviewYear || !years.includes(reviewYear)) reviewYear = years[0] || String(new Date().getFullYear());
+  const rev = reviews.find(r => r.year === reviewYear);
+  const count = entries.filter(e => (e.date || "").startsWith(reviewYear)).length;
+  app.innerHTML = `<div class="no-print">
+      <div class="row" style="margin-bottom:10px">
+        ${years.length > 1 ? `<select id="revYear" style="width:auto">${years.map(y => `<option ${y === reviewYear ? "selected" : ""}>${y}</option>`).join("")}</select>` : ""}
+        <button class="btn-primary" id="revGo" ${count ? "" : "disabled"}>${rev ? "Neu erstellen" : "Rückblick erstellen"}</button>
+        ${rev ? `<button id="revPrint">Drucken / PDF</button>` : ""}
+      </div>
+      <p class="muted small" id="revStatus" style="margin:0 0 10px">${count} Einträge aus ${reviewYear}. Die KI fasst zuerst jedes Volk zusammen und dann den ganzen Stand. Wegen des kostenlosen Limits kann das ein bis zwei Minuten dauern.</p>
+    </div>
+    ${rev ? `<section class="card"><h2>🐝 Saison ${esc(rev.year)}</h2><div class="ai-text">${mdLite(rev.text)}</div>
+        <p class="muted small" style="margin-top:12px">Erstellt am ${fmtShort(rev.createdAt.slice(0, 10))} von der KI, bitte prüfen.</p></section>
+      ${(rev.colonies || []).map(p => `<section class="card"><h2>${esc(p.name)}</h2><div class="ai-text">${esc(p.text)}</div></section>`).join("")}`
+    : `<div class="empty">${count ? "Noch kein Rückblick für " + reviewYear + "." : "Für " + reviewYear + " gibt es noch keine Einträge."}</div>`}`;
+  $("#revYear")?.addEventListener("change", (e) => { reviewYear = e.target.value; renderReview(); });
+  $("#revPrint")?.addEventListener("click", () => window.print());
+  $("#revGo").addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.innerHTML = `<span class="spinner"></span> Läuft…`;
+    try { await generateReview(reviewYear, (msg) => { const s = $("#revStatus"); if (s) s.textContent = msg; }); toast("Rückblick fertig"); }
+    catch (err) { toast(err.message, 5000); }
+    if (route().view === "review") renderReview();
+  });
+}
+
 /* ---------- Lager ---------- */
 const INV_CATS = ["Medikamente", "Futter", "Rähmchen & Mittelwände", "Beuten & Zargen", "Honig & Abfüllung", "Werkzeug & Schutz", "Sonstiges"];
 const UNITS = ["Stück", "kg", "g", "l", "ml", "Packung", "Flasche", "Eimer", "Sack"];
@@ -2055,10 +2228,12 @@ async function renderSettings() {
 
     <section class="card">
       <h2>Meine Imker-Literatur (PDF)</h2>
-      <p class="muted small" style="margin:0 0 6px">Bücher und Skripte, die bei Antwortvorschlägen berücksichtigt werden. Der Text wird auf dem Gerät durchsucht${msConnected() ? " und über OneDrive mit deinen anderen Geräten geteilt" : ""}. Eingescannte PDFs ohne Textebene funktionieren nicht.</p>
-      <div id="libList">${libDocs.length ? libDocs.map(d => `<div class="lib-doc"><div><strong>${esc(d.title)}</strong><div class="muted small">${d.pages} Seiten · hinzugefügt ${fmtShort(localDate(new Date(d.addedAt)))}</div></div>
+      <p class="muted small" style="margin:0 0 6px">Bücher und Skripte, die bei Antwortvorschlägen berücksichtigt werden. Eingescannte PDFs ohne Textebene funktionieren nicht.</p>
+      ${msConnected() ? `<p class="small" style="margin:0 0 6px">📂 Lege PDFs einfach in deinen OneDrive-Ordner <strong>Apps › Imkerbuch › Literatur</strong>. Die App liest sie beim nächsten Abgleich ein. Was du dort löschst, verschwindet auch hier. Große Bücher liest am besten der PC ein.</p>`
+        : `<p class="muted small" style="margin:0 0 6px">Mit Microsoft-Verbindung werden die PDFs im OneDrive-Ordner „Apps › Imkerbuch › Literatur“ abgelegt und zwischen deinen Geräten geteilt.</p>`}
+      <div id="libList">${libDocs.length ? libDocs.map(d => `<div class="lib-doc"><div><strong>${d.sourceId ? "☁️ " : ""}${esc(d.title)}</strong><div class="muted small">${d.failed ? "⚠️ kein lesbarer Text (eingescannt?)" : d.pages + " Seiten"} · hinzugefügt ${fmtShort(localDate(new Date(d.addedAt)))}</div></div>
           <button class="icon-btn btn-danger" data-libdel="${esc(d.id)}" aria-label="Entfernen">&#10005;</button></div>`).join("") : `<div class="muted small" style="padding:6px 0">Noch keine PDFs hinzugefügt.</div>`}</div>
-      <div class="row" style="margin-top:12px"><button id="libAdd">PDF hinzufügen</button><span id="libStatus" class="muted small"></span></div>
+      <div class="row" style="margin-top:12px"><button id="libAdd">PDF hinzufügen</button>${msConnected() ? `<button id="libScan">Ordner jetzt prüfen</button>` : ""}<span id="libStatus" class="muted small"></span></div>
       <input type="file" id="libFile" accept="application/pdf,.pdf" multiple class="hidden">
     </section>
 
@@ -2143,9 +2318,21 @@ async function renderSettings() {
     if (ok) toast(`${ok} PDF${ok === 1 ? "" : "s"} hinzugefügt`);
     if (route().view === "settings") renderSettings();
   });
+  $("#libScan")?.addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.innerHTML = `<span class="spinner"></span> Prüfe…`;
+    await syncNow({ interactive: true });
+    if (route().view === "settings") renderSettings();
+  });
   $$("[data-libdel]").forEach(b => b.addEventListener("click", async () => {
     const d = await getOne("libdocs", b.dataset.libdel); if (!d) return;
-    if (!confirm(`„${d.title}“ aus der Literatur entfernen?${msConnected() ? " Es wird auch auf deinen anderen Geräten entfernt." : ""}`)) return;
+    if (d.sourceId && !msConnected()) { toast("Diese PDF liegt in OneDrive. Bitte dort im Ordner Literatur löschen oder erst mit Microsoft verbinden.", 4500); return; }
+    if (!confirm(`„${d.title}“ aus der Literatur entfernen?${d.sourceId ? " Die PDF wird auch aus dem OneDrive-Ordner Literatur gelöscht (landet im OneDrive-Papierkorb)." : msConnected() ? " Es wird auch auf deinen anderen Geräten entfernt." : ""}`)) return;
+    if (d.sourceId) {
+      try {
+        const res = await graph(`/me/drive/items/${encodeURIComponent(d.sourceId)}`, { method: "DELETE" });
+        if (!res.ok && res.status !== 404) throw await graphError(res, "OneDrive");
+      } catch (err) { toast("Löschen in OneDrive fehlgeschlagen: " + err.message, 4500); return; }
+    }
     await removeDocLocal(d); settings.set("libDirty", "1"); scheduleSync(); renderSettings();
   }));
 }
@@ -2153,7 +2340,7 @@ async function renderSettings() {
 /* ---------- Sicherung ---------- */
 async function exportData() {
   const recordings = (await getAll("recordings")).map(({ audio, ...r }) => r);
-  const data = { app: "imkerbuch", version: 4, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), items: await getAll("items"), queens: await getAll("queens"), recordings };
+  const data = { app: "imkerbuch", version: 4, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), items: await getAll("items"), queens: await getAll("queens"), reviews: await getAll("reviews"), recordings };
   const name = `imkerbuch-sicherung-${todayStr()}.json`;
   const file = new File([JSON.stringify(data, null, 2)], name, { type: "application/json" });
   try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } }
@@ -2172,6 +2359,7 @@ async function importData(e) {
     for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
     for (const x of data.items || []) if (!(await getOne("items", x.id))) await put("items", x);
     for (const x of data.queens || []) if (!(await getOne("queens", x.id))) await put("queens", x);
+    for (const x of data.reviews || []) if (!(await getOne("reviews", x.id))) await put("reviews", x);
     toast(`${n} Notizen und ${m} Einträge importiert`); renderSettings(); updateBadges();
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
 }
@@ -2229,9 +2417,29 @@ function loadPdfJs() {
   });
   return pdfjsPromise;
 }
+async function storeDoc(doc, chunks) {
+  await putMany("libchunks", chunks);
+  await rawPut("libdocs", doc);
+  libCache = null; settings.set("libDirty", "1");
+}
+// PDF lokal einlesen; mit Microsoft-Verbindung wird die Datei zusätzlich im OneDrive-Ordner Apps/Imkerbuch/Literatur abgelegt
 async function addPdf(file, onProgress) {
+  let item = null;
+  if (msConnected()) {
+    const res = await graph(`/me/drive/special/approot:/${LIB_FOLDER}/${encodeURIComponent(file.name)}:/content?@microsoft.graph.conflictBehavior=rename`,
+      { method: "PUT", body: file, headers: { "Content-Type": "application/pdf" } });
+    if (!res.ok) throw await graphError(res, "Hochladen nach OneDrive");
+    item = await res.json();
+  }
+  const { doc, chunks } = await extractPdfData(await file.arrayBuffer(), item?.name || file.name, onProgress);
+  if (item) Object.assign(doc, { sourceId: item.id, sourceETag: item.eTag, sourceSize: item.size });
+  await storeDoc(doc, chunks);
+  scheduleSync();
+  return doc;
+}
+async function extractPdfData(data, name, onProgress) {
   const lib = await loadPdfJs();
-  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pdf = await lib.getDocument({ data }).promise;
   const docId = uid(), chunks = [];
   let total = 0;
   for (let p = 1; p <= pdf.numPages; p++) {
@@ -2248,12 +2456,62 @@ async function addPdf(file, onProgress) {
       i = end;
     }
   }
-  if (total < 300) throw new Error(`„${file.name}“ enthält keinen lesbaren Text (vermutlich eingescannt).`);
-  const doc = { id: docId, title: file.name.replace(/\.pdf$/i, ""), pages: pdf.numPages, chunks: chunks.length, addedAt: new Date().toISOString() };
-  await putMany("libchunks", chunks);
-  await rawPut("libdocs", doc);
-  libCache = null; settings.set("libDirty", "1"); scheduleSync();
-  return doc;
+  const doc = { id: docId, title: name.replace(/\.pdf$/i, ""), pages: pdf.numPages, chunks: chunks.length, addedAt: new Date().toISOString() };
+  if (total < 300) { const e = new Error(`„${name}“ enthält keinen lesbaren Text (vermutlich eingescannt).`); e.noText = true; e.doc = doc; throw e; }
+  return { doc, chunks };
+}
+
+/* Ordner Apps/Imkerbuch/Literatur in OneDrive: neue PDFs einlesen, entfernte austragen */
+const LIB_FOLDER = "Literatur";
+async function listLibFolder() {
+  let res = await graph(`/me/drive/special/approot:/${LIB_FOLDER}:/children?$top=200`);
+  if (res.status === 404) {
+    const c = await graph(`/me/drive/special/approot/children`, { method: "POST", json: { name: LIB_FOLDER, folder: {}, "@microsoft.graph.conflictBehavior": "fail" } });
+    if (!c.ok && c.status !== 409) throw await graphError(c, "OneDrive (Ordner Literatur anlegen)");
+    return [];
+  }
+  if (!res.ok) throw await graphError(res, "OneDrive (Ordner Literatur)");
+  let data = await res.json();
+  const out = [...(data.value || [])];
+  while (data["@odata.nextLink"]) { res = await graph(data["@odata.nextLink"]); if (!res.ok) break; data = await res.json(); out.push(...(data.value || [])); }
+  return out.filter(i => i.file && /\.pdf$/i.test(i.name || ""));
+}
+let scanningLib = false;
+async function scanLibFolder(onProgress) {
+  if (scanningLib) return false;
+  scanningLib = true;
+  try {
+    const files = await listLibFolder();
+    const ids = new Set(files.map(f => f.id));
+    const active = (await getAll("libdocs")).filter(d => !d.deleted);
+    let changed = false;
+    // aus dem Ordner gelöscht → aus der Literatur entfernen
+    for (const d of active) if (d.sourceId && !ids.has(d.sourceId)) { await removeDocLocal(d); changed = true; }
+    // doppelt eingelesen (zwei Geräte gleichzeitig) → älteste Fassung behalten
+    const bySource = {};
+    for (const d of active.filter(d => d.sourceId && ids.has(d.sourceId)).sort((a, b) => (a.addedAt || "").localeCompare(b.addedAt || ""))) {
+      if (bySource[d.sourceId]) { await removeDocLocal(d); changed = true; } else bySource[d.sourceId] = d;
+    }
+    for (const f of files) {
+      const d = bySource[f.id];
+      if (d && d.sourceETag === f.eTag) continue;
+      if (d && d.sourceSize === f.size) { Object.assign(d, { sourceETag: f.eTag, title: f.name.replace(/\.pdf$/i, "") }); await rawPut("libdocs", d); changed = true; continue; }
+      let r;
+      try { r = await fetch(f["@microsoft.graph.downloadUrl"]); } catch { continue; }
+      if (!r.ok) continue;
+      let result;
+      try { result = await extractPdfData(await r.arrayBuffer(), f.name, (p, n) => onProgress?.(f.name, p, n)); }
+      catch (err) {
+        if (!err.noText) continue;
+        result = { doc: { ...err.doc, failed: true, chunks: 0 }, chunks: [] }; // merken, damit sie nicht bei jedem Abgleich neu gelesen wird
+      }
+      Object.assign(result.doc, { sourceId: f.id, sourceETag: f.eTag, sourceSize: f.size });
+      if (d) await removeDocLocal(d);
+      await storeDoc(result.doc, result.chunks);
+      changed = true;
+    }
+    return changed;
+  } finally { scanningLib = false; }
 }
 async function removeDocLocal(doc, at) {
   const ids = (await getAll("libchunks")).filter(c => c.docId === doc.id).map(c => c.id);
@@ -2463,14 +2721,14 @@ async function msToken(force = false) {
   storeTokens(data);
   return data.access_token;
 }
-async function graph(path, { method = "GET", json, headers = {} } = {}) {
+async function graph(path, { method = "GET", json, headers = {}, body: rawBody } = {}) {
   for (let i = 0; i < 2; i++) {
     const token = await msToken(i > 0);
     const h = { Authorization: "Bearer " + token, ...headers };
-    let body;
+    let body = rawBody;
     if (json !== undefined) { h["Content-Type"] = "application/json"; body = JSON.stringify(json); }
     let res;
-    try { res = await fetch(GRAPH + path, { method, headers: h, body }); } catch { throw new Error("Keine Verbindung zu Microsoft."); }
+    try { res = await fetch(path.startsWith("http") ? path : GRAPH + path, { method, headers: h, body }); } catch { throw new Error("Keine Verbindung zu Microsoft."); }
     if (res.status === 401 && i === 0) continue;
     return res;
   }
@@ -2499,8 +2757,8 @@ function setSyncState(state, msg = "") {
   b.title = state === "login" ? "Bitte erneut bei Microsoft anmelden (antippen)" : state === "error" ? "Synchronisation fehlgeschlagen: " + msg : "Mit OneDrive synchronisieren";
 }
 async function localSnapshot() {
-  const [colonies, entries, recordings, tombstones, items, queens] = await Promise.all(["colonies", "entries", "recordings", "tombstones", "items", "queens"].map(getAll));
-  return { colonies, entries, recordings, tombstones, items, queens };
+  const [colonies, entries, recordings, tombstones, items, queens, reviews] = await Promise.all(["colonies", "entries", "recordings", "tombstones", "items", "queens", "reviews"].map(getAll));
+  return { colonies, entries, recordings, tombstones, items, queens, reviews };
 }
 function mergeData(local, remote) {
   const out = {};
@@ -2545,9 +2803,9 @@ async function applyLocal(local, merged) {
   } finally { applyingRemote = false; }
   return changes;
 }
-const payloadOf = (d) => ({ app: "imkerbuch", version: 5, colonies: d.colonies, entries: d.entries, items: d.items, queens: d.queens,
+const payloadOf = (d) => ({ app: "imkerbuch", version: 6, colonies: d.colonies, entries: d.entries, items: d.items, queens: d.queens, reviews: d.reviews,
   recordings: d.recordings.map(({ audio, ...r }) => r), tombstones: d.tombstones });
-const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items", "queens"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
+const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items", "queens", "reviews"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
 async function downloadRemote() {
   const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}`);
   if (res.status === 404) return { data: null, eTag: null };
@@ -2675,7 +2933,13 @@ async function syncNow({ quiet = false, interactive = false } = {}) {
   try {
     changes += await syncOnce();
     if (settings.get("outlook", "1") === "1" && await syncCalendar()) changes += await syncOnce();
-    if (await syncLibrary() && route().view === "settings") renderSettings();
+    let libChanged = await syncLibrary();
+    try {
+      if (await scanLibFolder((name, p, n) => { if (p === 1 || p % 20 === 0 || p === n) toast(`Literatur wird eingelesen: „${name}“ (Seite ${p}/${n})`, 2500); })) {
+        await syncLibrary(); libChanged = true;
+      }
+    } catch (e) { if (e.needLogin) throw e; if (!quiet) toast("Literatur-Ordner: " + e.message, 4000); }
+    if (libChanged && route().view === "settings") renderSettings();
     settings.set("msLastSync", new Date().toISOString());
     setSyncState("ok"); ok = true;
     if (!quiet) toast("Synchronisiert ✓");
@@ -2726,6 +2990,8 @@ async function render() {
     case "queen": return renderQueen(r.id, r.colony);
     case "pedigree": return renderPedigree();
     case "archive": return renderArchive();
+    case "ask": return renderAsk();
+    case "review": return renderReview();
     case "entry": { const e = await getOne("entries", r.id); if (!e) { setChrome("Eintrag", { back: true }); app.innerHTML = `<div class="empty">Diesen Eintrag gibt es nicht mehr.</div>`; return; } return renderEntryForm(e); }
     case "new": return renderEntryForm(null, { colony: r.colony, type: r.type });
     default: return renderHome();
