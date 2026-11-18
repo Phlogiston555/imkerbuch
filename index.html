@@ -135,6 +135,13 @@
   .st.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
   .st.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
   .st.info { color: var(--muted); background: var(--surface-2); }
+  .qdot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid #8888; vertical-align: -1px; }
+  ul.tree { list-style: none; margin: 0; padding-left: 0; }
+  ul.tree ul { list-style: none; margin: 4px 0 4px 10px; padding-left: 12px; border-left: 2px solid var(--border); }
+  ul.tree li { margin: 6px 0; }
+  ul.tree .muted { font-size: 13px; }
+  .arch { opacity: .6; }
+  .ev-box { display: grid; gap: 8px; }
   .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.bb { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface); }
   table.bb th, table.bb td { border: 1px solid var(--border); padding: 5px 7px; text-align: left; vertical-align: top; }
@@ -209,7 +216,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "4.2.0";
+const APP_VERSION = "4.3.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -226,6 +233,7 @@ const TYPES = {
   wissen: { label: "Learning", plural: "Learnings", icon: "🧠" },
   status: { label: "Status", plural: "Status", icon: "🏷️" },
   behandlung: { label: "Behandlung", plural: "Behandlungen", icon: "💊" },
+  ereignis: { label: "Ereignis", plural: "Ereignisse", icon: "🌿" },
   lager: { label: "Lagerbuchung", plural: "Lagerbuchungen", icon: "📦" }, // nur in der Prüfansicht, wird direkt ins Lager gebucht
 };
 // Status eines Volks: Königin/Verhalten/Beute je ein Wert, Probleme beliebig viele (setzen/aufheben)
@@ -280,10 +288,10 @@ const METRICS = {
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("imkerbuch", 5);
+    const req = indexedDB.open("imkerbuch", 6);
     req.onupgradeneeded = () => {
       const d = req.result;
-      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks", "items"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks", "items", "queens"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -304,7 +312,7 @@ async function tx(store, mode, fn) {
 }
 const getAll = (store) => tx(store, "readonly", s => s.getAll());
 const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
-const SYNCED = new Set(["colonies", "entries", "recordings", "items"]);
+const SYNCED = new Set(["colonies", "entries", "recordings", "items", "queens"]);
 const rawPut = (store, obj) => tx(store, "readwrite", s => s.put(obj));
 const rawDel = (store, id) => tx(store, "readwrite", s => s.delete(id));
 const putMany = (store, arr) => tx(store, "readwrite", s => { for (const x of arr) s.put(x); });
@@ -383,7 +391,8 @@ function matchColony(name, colonies) {
   }
   for (const c of colonies) {
     const names = [c.name, ...(c.aliases || [])].map(normName).filter(Boolean);
-    if (names.some(x => (" " + n + " ").includes(" " + x + " ") || (" " + x + " ").includes(" " + n + " "))) return c.id;
+    // „Ableger Schalke“ ist ein eigenes Volk und darf nicht dem Muttervolk „Schalke“ zugeordnet werden
+    if (names.some(x => n.includes("ableger") === x.includes("ableger") && ((" " + n + " ").includes(" " + x + " ") || (" " + x + " ").includes(" " + n + " ")))) return c.id;
   }
   return null;
 }
@@ -460,11 +469,12 @@ function describeStatus(st) {
   if (st.problem.size) p.push("problem=" + [...st.problem].join("+"));
   return p.length ? " – aktueller Status: " + p.join(", ") : " – noch kein Status";
 }
-function analysisPrompt(colonies, when, entries = [], items = []) {
+function analysisPrompt(colonies, when, entries = [], items = [], queens = []) {
+  const qInfo = (cid) => { const q = queens.find(x => x.colonyId === cid && x.status !== "ausgeschieden"); return q ? `, Königin ${q.label}${q.year ? " Jg. " + q.year : ""}` : ""; };
   const inv = items.length ? items.map(i => `- id "${i.id}": ${i.name} (Bestand ${fmtQty(itemStock(i), i.unit)}${i.isMed ? "; Tierarzneimittel" : ""})`).join("\n") : "(noch keine)";
   const d = new Date(when);
   const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
-  const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}${describeStatus(currentStatus(entries.filter(e => e.colonyId === c.id)))}`).join("\n") : "(noch keine eingetragen)";
+  const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}${describeStatus(currentStatus(entries.filter(e => e.colonyId === c.id)))}${qInfo(c.id)}`).join("\n") : "(noch keine eingetragen)";
   const opts = (k) => Object.keys(STATUS[k].values).map(v => `"${v}"`).join(", ");
   return `Du bist Assistent einer Hobby-Imkerei. Du bekommst das Transkript einer Sprachnotiz, die bei der Durchsicht der Bienenvölker aufgenommen wurde.
 Aufnahmedatum: ${localDate(d)} (${wd}).
@@ -486,6 +496,8 @@ Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
   - "problem": ${opts("problem")}. "statusAction": "set", wenn das Problem neu besteht, "clear", wenn es laut Notiz nicht mehr besteht (z. B. Behandlung beendet, Schwarmstimmung vorbei, genug Futter).
   - "beute": ${opts("beute")}. Z. B. Ableger im Ablegerkasten gebildet → "ableger"; in eine normale Beute umgesetzt/umlogiert → "normal".
   Lege einen Status nur an, wenn er sich gegenüber dem aktuellen Status ändert oder neu ist. Status gibt es nur für ein bestimmtes Volk. Die zugrunde liegende Beobachtung zusätzlich als "beobachtung" anlegen.
+- "ereignis": Ereignis im Lebenslauf eines Volks. "eventType": "ableger" | "schwarm_gefangen" | "schwarm_abgegangen" | "neues_volk" | "koenigin_neu" | "koenigin_weg" | "vereinigt" | "eingegangen" | "abgegeben". Das Volk (colonyId) ist das betroffene Volk; bei "ableger" das Muttervolk; bei "schwarm_gefangen" das Volk, aus dem der Schwarm stammt (sonst null); bei "neues_volk" null. Weitere Felder: "newName" = Name des neuen Volks bei ableger/schwarm_gefangen/neues_volk (wenn keiner genannt: z. B. "Ableger Schalke"); "queenMode" bei ableger: "nachschaffung" (Standard), "alte" (alte Königin kommt in den Ableger) oder "zugesetzt"; "targetId" bei vereinigt = id des Volks, in das vereinigt wurde (das betroffene Volk wird aufgelöst); "queen" bei koenigin_neu = {"origin":"nachzucht|gekauft|schwarm|umweiselung|unbekannt","year":Zahl oder null,"line":"…","breeder":"…","mating":"belegstelle|stand|instrumentell oder leer","marked":true/false,"motherColonyId":"id oder null"}.
+  Ein Ableger ist ein eigenes, neues Volk: Notizen zu einem Ableger, der noch nicht als Volk bekannt ist, NICHT dem Muttervolk zuordnen, sondern "colonyId": null und "colonyName": Name des Ablegers.
 - "lager": Bestandsänderung im Materiallager (gekauft, geliefert, verbraucht, eingehängt, Inventur). Felder: "itemId" (id des Lagerartikels) oder null und "itemName" (Bezeichnung); "delta" Zahl (positiv = Zugang, negativ = Verbrauch); "unit". Bei Inventur ("ich habe noch 12 Zargen") ist delta = genannte Menge minus aktueller Bestand. Bei Kauf eines Tierarzneimittels zusätzlich "charge" (Chargennummer) und "mhd" (YYYY-MM-DD; "haltbar bis Mai 2027" = 2027-05-31), falls genannt.
 - "behandlung": Anwendung eines Tierarzneimittels (z. B. Ameisensäure, Oxalsäure, Milchsäure, Thymol) an einem Volk. Felder: "itemId" oder null und "itemName", "value" = verabreichte Menge, "unit", Volk zuordnen. Für jedes behandelte Volk einen eigenen Eintrag. Dafür KEINEN zusätzlichen "lager"-Eintrag anlegen, der Bestand wird automatisch abgezogen.
 - "messwert": ein Zahlenwert mit "metric" = "brutraum" (Anzahl Brutraum-Zargen), "honigraum" (Anzahl Honigraum-Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
@@ -500,7 +512,7 @@ Regeln:
 - Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
 
 Antworte ausschließlich mit JSON in genau dieser Form:
-{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen|status|lager|behandlung","itemId":"id oder null","itemName":"… oder null","delta":Zahl oder null,"unit":"… oder null","charge":"… oder null","mhd":"YYYY-MM-DD oder null","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"brutraum|honigraum|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null","statusKey":"koenigin|verhalten|problem|beute oder null","statusValue":"… oder null","statusAction":"set|clear oder null"}]}`;
+{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen|status|lager|behandlung|ereignis","eventType":"… oder null","newName":"… oder null","queenMode":"… oder null","targetId":"… oder null","queen":{…} oder null,"itemId":"id oder null","itemName":"… oder null","delta":Zahl oder null,"unit":"… oder null","charge":"… oder null","mhd":"YYYY-MM-DD oder null","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"brutraum|honigraum|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null","statusKey":"koenigin|verhalten|problem|beute oder null","statusValue":"… oder null","statusAction":"set|clear oder null"}]}`;
 }
 function parseJsonLoose(s) {
   s = String(s || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -511,9 +523,9 @@ function parseJsonLoose(s) {
 }
 async function analyze(text, when) {
   if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt.");
-  const colonies = await getAll("colonies");
+  const colonies = activeColonies(await getAll("colonies"));
   const items = await getAll("items");
-  const sys = analysisPrompt(colonies, when, await getAll("entries"), items);
+  const sys = analysisPrompt(colonies, when, await getAll("entries"), items, await getAll("queens"));
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     const model = await chatModel(attempt > 0);
@@ -558,6 +570,19 @@ function normalizeItems(items, colonies, invItems = []) {
       s.statusKey = it.statusKey; s.statusValue = it.statusValue;
       s.statusAction = it.statusKey === "problem" && it.statusAction === "clear" ? "clear" : "set";
       s.text = statusText(s.statusKey, s.statusValue, s.statusAction);
+    }
+    if (it.type === "ereignis") {
+      if (!EVENTS[it.eventType]) continue;
+      const nn = (x) => x && String(x).toLowerCase() !== "null" ? String(x).trim() : "";
+      const q = it.queen && typeof it.queen === "object" ? it.queen : {};
+      s.ev = { eventType: it.eventType };
+      const f = EVENTS[it.eventType].fields;
+      if (f.includes("newName")) s.ev.newName = cleanNewName(nn(it.newName));
+      if (f.includes("queenMode")) s.ev.queenMode = ["alte", "zugesetzt"].includes(it.queenMode) ? it.queenMode : "nachschaffung";
+      if (f.includes("target")) s.ev.targetId = colonies.find(c => c.id === it.targetId)?.id || matchColony(nn(it.targetId), colonies) || "";
+      if (f.includes("queen")) s.ev.queen = { origin: Q_ORIGINS[q.origin] ? q.origin : "unbekannt", year: parseInt(q.year) || null, line: nn(q.line), breeder: nn(q.breeder),
+        mating: MATINGS[q.mating] ? q.mating : "", marked: !!q.marked, motherColonyId: colonies.find(c => c.id === q.motherColonyId)?.id || null };
+      s.text = eventText(s.ev, colonies);
     }
     if (it.type === "lager" || it.type === "behandlung") {
       const known = invItems.find(i => i.id === it.itemId);
@@ -744,6 +769,9 @@ function route() {
     case "lager": return { view: "inventory", tab: "lager" };
     case "artikel": return { view: "item", id: p[1] || "neu" };
     case "bestandsbuch": return { view: "bestandsbuch" };
+    case "koenigin": return { view: "queen", id: p[1] || "neu", colony: p[2] || "" };
+    case "stammbaum": return { view: "pedigree" };
+    case "archiv": return { view: "archive" };
     case "eintrag": return { view: "entry", id: p[1] };
     case "neu": return { view: "new", colony: p[1] || "", type: p[2] || "" };
     default: return { view: "home", tab: "notizen" };
@@ -873,7 +901,8 @@ function suggestionRow(s, colonies, unknownNames, items = []) {
     <div class="sg-sub f-newbatch-row ${s.type === "lager" && (item?.isMed || s.charge || s.mhd) ? "" : "hidden"}">
       <input type="text" class="f-charge" value="${esc(s.charge || "")}" placeholder="Chargen-Nr." aria-label="Charge">
       <input type="date" class="f-mhd" value="${esc(s.mhd || "")}" aria-label="MHD">
-    </div>`;
+    </div>
+    <div class="f-ev-row ${s.type === "ereignis" ? "" : "hidden"}">${eventFieldsHtml(s.ev || {}, colonies)}</div>`;
   return suggestionRowBase(s, colonies, unknownNames).replace(/<\/div>\s*$/, invRows + "\n  </div>");
 }
 function suggestionRowBase(s, colonies, unknownNames) {
@@ -919,11 +948,15 @@ function readSuggestions(rec) {
       if (s.type === "lager") { s.delta = isFinite(q) ? q : null; s.charge = $(".f-charge", el).value.trim(); s.mhd = $(".f-mhd", el).value; }
       else { s.value = isFinite(q) ? q : null; s.batchId = $(".f-batch", el).value || null; }
     }
+    if (s.type === "ereignis") s.ev = readEventFields($(".f-ev-row", el));
   }
 }
 let saveSgTimer;
-function wireSuggestionRows(rec, items = []) {
+function wireSuggestionRows(rec, items = [], colonies = []) {
   for (const el of $$(".sg")) {
+    const evRow = $(".f-ev-row", el);
+    wireEventFields(evRow, () => { if ($(".f-type", el).value === "ereignis") $(".f-text", el).value = eventText(readEventFields(evRow), colonies); });
+    $(".f-type", el).addEventListener("change", (e) => evRow.classList.toggle("hidden", e.target.value !== "ereignis"));
     const invVis = () => {
       const t = $(".f-type", el).value, it = items.find(i => i.id === $(".f-item", el).value);
       $(".f-inv-row", el).classList.toggle("hidden", t !== "lager" && t !== "behandlung");
@@ -948,9 +981,12 @@ function wireSuggestionRows(rec, items = []) {
 async function applyReview(rec) {
   readSuggestions(rec);
   const colonies = await getAll("colonies");
-  const chosen = rec.extraction.suggestions.filter(s => s.include);
-  const unknown = [...new Set(chosen.filter(s => s.assign.startsWith("new:")).map(s => s.assign.slice(4)))];
+  // Ereignisse zuerst: Sie legen ggf. neue Völker an, auf die sich andere Einträge beziehen
+  const chosen = rec.extraction.suggestions.filter(s => s.include).sort((a, b) => (b.type === "ereignis") - (a.type === "ereignis"));
+  const evNames = new Set(chosen.filter(s => s.type === "ereignis" && s.ev?.newName).map(s => evKey(s.ev.newName)));
+  const unknown = [...new Set(chosen.filter(s => s.assign.startsWith("new:")).map(s => s.assign.slice(4)))].filter(n => !evNames.has(evKey(n)));
   const resolution = {};
+  for (const s of chosen) if (s.type === "ereignis" && EVENTS[s.ev?.eventType]?.fields.includes("newName") && !s.ev.newName) { toast("Bitte beim Ereignis einen Namen für das neue Volk angeben.", 3500); return; }
   for (const n of unknown) {
     const sel = $$(".f-unknown").find(x => x.dataset.name === n);
     const v = sel?.value || "";
@@ -982,9 +1018,21 @@ async function applyReview(rec) {
     if (!newItems[n]) newItems[n] = await createItem(n, { isMed: s.type === "behandlung" || !!(s.charge || s.mhd), unit: s.unit });
     return newItems[n];
   };
+  const byEvent = {};
   for (const s of chosen) {
     let colonyId = s.assign === GENERAL ? null : s.assign;
-    if (s.assign.startsWith("new:")) colonyId = newIds[s.assign.slice(4)];
+    if (s.assign.startsWith("new:")) { const n = s.assign.slice(4); colonyId = n in newIds ? newIds[n] : (byEvent[evKey(n)] || null); }
+    if (s.type === "ereignis") {
+      const ev = { ...s.ev, queen: s.ev.queen ? { ...s.ev.queen } : undefined };
+      try {
+        const cid = await applyEvent(ev, colonyId, date);
+        if (ev.newColonyId) byEvent[evKey(ev.newName)] = ev.newColonyId;
+        const e = { id: uid(), type: "ereignis", colonyId: cid, text: s.text || eventText(ev, colonies), date, createdAt: new Date().toISOString(),
+          source: "voice", recordingId: rec.id, done: false, eventType: ev.eventType, ev };
+        await put("entries", e); ids.push(e.id);
+      } catch (err) { toast(err.message, 4000); }
+      continue;
+    }
     if (s.type === "lager") {
       const item = await resolveItem(s); if (!item) continue;
       await changeStock(item.id, s.delta, { reason: "Sprachnotiz", date, batch: s.delta > 0 && item.isMed ? { charge: s.charge, mhd: s.mhd } : null });
@@ -1026,7 +1074,7 @@ async function renderDetail(id) {
   const r = await getOne("recordings", id);
   setChrome("Notiz", { back: true });
   if (!r) { app.innerHTML = `<div class="empty">Diese Notiz gibt es nicht mehr. <a href="#/">Zur Übersicht</a></div>`; return; }
-  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const colonies = activeColonies(await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const invItems = (await getAll("items")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const pending = r.status === "pending" || busy.has(r.id);
   const x = r.extraction?.status;
@@ -1050,9 +1098,11 @@ async function renderDetail(id) {
     if (x === "review" && !analyzing) {
       const sugg = r.extraction.suggestions;
       const unknownNames = [...new Set(sugg.filter(s => s.assign.startsWith("new:")).map(s => s.assign.slice(4)))];
+      const evNames = new Set(sugg.filter(s => s.type === "ereignis" && s.ev?.newName).map(s => evKey(s.ev.newName)));
       html += `<section><h2 style="font-size:18px;margin:4px 0 4px">Vorschläge prüfen</h2>
         <p class="muted small" style="margin:0 0 10px">Haken entfernen, um einen Vorschlag zu verwerfen. Text, Art, Volk und Termin kannst du direkt ändern.</p>`;
       for (const n of unknownNames) {
+        if (evNames.has(evKey(n))) { html += `<div class="unknown">🌿 <strong>„${esc(n)}“</strong> wird durch das Ereignis unten als neues Volk angelegt.</div>`; continue; }
         html += `<div class="unknown"><strong>„${esc(n)}“</strong> ist kein bekanntes Volk. Was soll damit passieren?
           <select class="f-unknown" data-name="${esc(n)}" style="margin-top:8px">
             <option value="">– bitte wählen –</option>
@@ -1088,7 +1138,7 @@ async function renderDetail(id) {
   html += `<div class="row" style="margin-top:20px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Notiz löschen</button></div>`;
   app.innerHTML = html;
 
-  if (x === "review" && !analyzing) { wireSuggestionRows(r, invItems);$("#apply")?.addEventListener("click", () => applyReview(r)); }
+  if (x === "review" && !analyzing) { wireSuggestionRows(r, invItems, colonies); $("#apply")?.addEventListener("click", () => applyReview(r)); }
   const ta = $("#text"), saveBtn = $("#save");
   ta?.addEventListener("input", () => { saveBtn.disabled = ta.value === r.text; });
   saveBtn?.addEventListener("click", async () => {
@@ -1155,8 +1205,11 @@ function currentValues(entries) {
 /* ---------- Ansicht: Völker ---------- */
 async function renderColonies() {
   setChrome("Völker", { tab: "voelker" });
-  const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const allCol = await getAll("colonies");
+  const colonies = activeColonies(allCol).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const archivedCount = allCol.length - colonies.length;
   const entries = await getAll("entries");
+  const queens = await getAll("queens");
   const card = (id, name, sub) => {
     const es = entries.filter(e => (e.colonyId || null) === id || (id === null && e.colonyId && !colonies.some(c => c.id === e.colonyId)));
     const v = currentValues(es);
@@ -1167,14 +1220,16 @@ async function renderColonies() {
     const isAbleger = st?.beute === "ableger";
     const vals = (isAbleger ? ["Ablegerkasten"] : []).concat(Object.keys(METRICS).filter(m => v[m] && !(isAbleger && (m === "brutraum" || m === "honigraum"))).map(m => fmtMetric(m, v[m].value)));
     const info = [openT ? `${openT} offene Aufgabe${openT === 1 ? "" : "n"}` : "", openQ ? `${openQ} Frage${openQ === 1 ? "" : "n"}` : ""].filter(Boolean);
+    const q = id ? queens.find(x => x.colonyId === id && x.status !== "ausgeschieden") : null;
     return `<a class="card colony-card" href="#/volk/${encodeURIComponent(id || GENERAL)}">
-      <h2>${esc(name)} <span class="muted">›</span></h2>
+      <h2><span>${esc(name)} ${q ? qDot(q.year) : ""}</span> <span class="muted">›</span></h2>
       ${sub ? `<div class="muted small">${esc(sub)}</div>` : ""}
       ${st ? statusTiles(st) : ""}
       ${vals.length ? `<div class="small" style="margin-top:6px">${esc(vals.join(" · "))}</div>` : ""}
       <div class="muted small" style="margin-top:4px">${info.length ? esc(info.join(" · ")) + " · " : ""}${last ? "zuletzt " + fmtShort(last.date) : "noch keine Einträge"}</div></a>`;
   };
-  let html = colonies.map(c => card(c.id, c.name, c.aliases?.length ? "auch: " + c.aliases.join(", ") : "")).join("");
+  let html = `<div class="row" style="margin-bottom:10px"><a class="btn" href="#/stammbaum">🌳 Stammbaum</a>${archivedCount ? `<a class="btn" href="#/archiv">🗄️ Archiv (${archivedCount})</a>` : ""}<a class="btn" href="#/neu//ereignis">+ Ereignis</a></div>`;
+  html += colonies.map(c => card(c.id, c.name, c.aliases?.length ? "auch: " + c.aliases.join(", ") : "")).join("");
   html += card(null, GENERAL_NAME, "Alles ohne Bezug zu einem bestimmten Volk");
   if (!colonies.length) html = `<div class="banner">Noch keine Völker eingetragen. <a href="#/einstellungen">Völker anlegen</a></div>` + html;
   else html += `<p class="muted small" style="text-align:center"><a href="#/einstellungen">Völker verwalten</a></p>`;
@@ -1191,12 +1246,29 @@ async function renderColony(id) {
   const v = currentValues(all);
   let html = "";
   if (!isGeneral) {
+    const queens = await getAll("queens");
+    const q = queens.find(x => x.colonyId === id && x.status !== "ausgeschieden");
+    const parents = (colony.origin?.parentIds || []).map(p => colonies.find(c => c.id === p)).filter(Boolean);
+    const children = colonies.filter(c => (c.origin?.parentIds || []).includes(id));
+    if (colony.archived) html += `<div class="banner">🗄️ Archiviert: ${esc(colony.archiveReason || "")}${colony.archivedAt ? " am " + fmtShort(colony.archivedAt) : ""}
+      <div class="row" style="margin-top:8px"><button class="btn-small" id="unarchive">Wieder aktivieren</button></div></div>`;
+    html += `<section class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">👑 Königin</h2>
+        ${q ? `<a class="btn btn-small" href="#/koenigin/${encodeURIComponent(q.id)}">Bearbeiten</a>` : `<a class="btn btn-small" href="#/koenigin/neu/${encodeURIComponent(id)}">+ Königin</a>`}</div>
+      ${q ? `<div style="margin-top:8px">${qDot(q.year)} <strong>${esc(queenLabel(q))}</strong>${q.marked ? " · gezeichnet" : ""}</div>
+        <div class="muted small">${esc([Q_ORIGINS[q.origin], q.line, q.breeder, q.mating ? MATINGS[q.mating] : "", q.since ? "seit " + fmtShort(q.since) : ""].filter(Boolean).join(" · "))}</div>`
+        : `<p class="muted small" style="margin:8px 0 0">Keine Königin erfasst.</p>`}
+      <div class="muted small" style="margin-top:10px">${colony.origin ? `Entstanden: ${esc(C_ORIGINS[colony.origin.type] || "")}${parents.length ? " von " + parents.map(p => `<a href="#/volk/${encodeURIComponent(p.id)}">${esc(p.name)}</a>`).join(", ") : ""}${colony.origin.date ? " am " + fmtShort(colony.origin.date) : ""}` : ""}
+        ${children.length ? `${colony.origin ? " · " : ""}Ableger/Schwärme: ${children.map(c => `<a href="#/volk/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join(", ")}` : ""}
+        ${!colony.origin && !children.length ? `<a href="#/stammbaum">Stammbaum ansehen</a>` : ""}</div></section>`;
+  }
+  if (!isGeneral) {
     const st = currentStatus(all);
     const isAbleger = st.beute === "ableger";
     const tiles = statusTiles(st);
     html += `<section class="card">${tiles ? tiles.replace('class="tiles"', 'class="tiles" style="margin:0 0 12px"') : ""}<div class="values">`;
     if (st.beute) html += `<div class="val"><span>Beute</span><b>${esc(STATUS.beute.values[st.beute])}</b><span>&nbsp;</span></div>`;
-    html += Object.entries(METRICS).filter(([m]) => !(isAbleger && (m === "brutraum" || m === "honigraum"))).map(([m, def]) => {
+    const hasQ = (await getAll("queens")).some(x => x.colonyId === id && x.status !== "ausgeschieden");
+    html += Object.entries(METRICS).filter(([m]) => !(isAbleger && (m === "brutraum" || m === "honigraum")) && !(m === "koenigin" && hasQ)).map(([m, def]) => {
       const e = v[m];
       const unit = def.unit === "Zargen" && Number(e?.value) === 1 ? "Zarge" : def.unit;
       return `<div class="val"><span>${def.short}</span><b>${e ? esc(m === "koenigin" ? e.value : fmtNum(e.value) + (unit ? " " + unit : "")) : "–"}</b><span>${e ? "am " + fmtShort(e.date) : "noch kein Wert"}</span></div>`;
@@ -1215,6 +1287,10 @@ async function renderColony(id) {
   }
   app.innerHTML = html;
   $$("[data-f]").forEach(b => b.addEventListener("click", () => { colonyFilter = b.dataset.f; renderColony(id); }));
+  $("#unarchive")?.addEventListener("click", async () => {
+    const c = await getOne("colonies", id); delete c.archived; delete c.archivedAt; delete c.archiveReason; await put("colonies", c);
+    toast("Wieder aktiv. Eine Königin trägst du bei Bedarf neu ein."); renderColony(id);
+  });
   wireToggles(() => renderColony(id));
 }
 
@@ -1293,7 +1369,7 @@ async function renderEntryForm(existing, preset = {}) {
     <label for="eType" style="margin-top:0">Art</label>
     <select id="eType">${typeOptions(e.type, ["lager"])}</select>
     <label for="eColony">Volk</label>
-    <select id="eColony">${colonies.map(c => `<option value="${esc(c.id)}" ${c.id === e.colonyId ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("")}
+    <select id="eColony">${colonies.filter(c => !c.archived || c.id === e.colonyId).map(c => `<option value="${esc(c.id)}" ${c.id === e.colonyId ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("")}
       <option value="" ${!e.colonyId || !colonies.some(c => c.id === e.colonyId) ? "selected" : ""}>📍 ${GENERAL_NAME}</option></select>
     <label for="eText">Text</label>
     <textarea id="eText" rows="3" placeholder="z. B. Königin gesehen, Brut geschlossen">${esc(e.text)}</textarea>
@@ -1309,6 +1385,11 @@ async function renderEntryForm(existing, preset = {}) {
       <label>Status</label>
       <div class="sg-sub"><select id="eSKey">${statusKeyOptions(e.statusKey || "koenigin")}</select>
       <select id="eSVal">${statusValOptions(e.statusKey || "koenigin", e.statusValue, e.statusAction)}</select></div>
+    </div>
+    <div id="rowEvent" class="${e.type === "ereignis" ? "" : "hidden"}">
+      <label>Ereignis</label>
+      ${isNew ? eventFieldsHtml({}, colonies) : `<p class="small" style="margin:0">${esc(EVENTS[e.eventType]?.label || "Ereignis")}. Die Auswirkungen (neues Volk, Archiv, Königin) wurden bereits übernommen. Änderungen machst du direkt am Volk oder an der Königin.</p>`}
+      ${isNew ? `<p class="muted small" style="margin:6px 0 0">Bei „Ableger“ und „Schwarm eingefangen“ wählst du oben das Muttervolk, bei „Volk gekauft“ kein Volk.</p>` : ""}
     </div>
     <div id="rowTreat" class="${e.type === "behandlung" ? "" : "hidden"}">
       <label for="eMed">Arzneimittel</label>
@@ -1345,11 +1426,13 @@ async function renderEntryForm(existing, preset = {}) {
     $("#rowDue").classList.toggle("hidden", t !== "aufgabe");
     $("#rowStatus").classList.toggle("hidden", t !== "status");
     $("#rowTreat").classList.toggle("hidden", t !== "behandlung");
+    $("#rowEvent").classList.toggle("hidden", t !== "ereignis");
     $("#rowAnswer").classList.toggle("hidden", t !== "frage");
     $("#rowDone").classList.toggle("hidden", !(t === "aufgabe" || t === "frage"));
     $("#eDoneLbl").textContent = t === "frage" ? "Beantwortet" : "Erledigt";
   });
   $("#eSKey").addEventListener("change", (ev) => { $("#eSVal").innerHTML = statusValOptions(ev.target.value); });
+  if (isNew) wireEventFields($("#rowEvent .ev-box"));
   $("#eMed").addEventListener("change", (ev) => {
     const m = meds.find(x => x.id === ev.target.value);
     $("#eBatch").innerHTML = batchOptions(m);
@@ -1387,6 +1470,13 @@ async function renderEntryForm(existing, preset = {}) {
         supplier: b?.supplier || m.supplier || "", beleg: b?.beleg || "", purchasedAt: b?.purchasedAt || "" });
       if (!out.text) out.text = `${m.name}: ${fmtQty(q, m.unit)}`;
     }
+    if (t === "ereignis" && isNew) {
+      const ev = readEventFields($("#rowEvent .ev-box"));
+      try { out.colonyId = await applyEvent(ev, out.colonyId, out.date); }
+      catch (err) { toast(err.message, 4000); return; }
+      out.eventType = ev.eventType; out.ev = ev;
+      if (!out.text) out.text = eventText(ev, await getAll("colonies"));
+    }
     if (!out.text) { toast("Bitte einen Text eingeben."); return; }
     // Lagerbestand: alte Abbuchung zurück, neue abziehen
     const prevApplied = latest?.stockApplied || null;
@@ -1415,6 +1505,257 @@ async function renderEntryForm(existing, preset = {}) {
     await del("entries", existing.id); toast("Gelöscht"); updateBadges();
     if (navDepth > 0) history.back(); else location.hash = "#/voelker";
   });
+}
+
+/* ---------- Königinnen & Lebenslauf der Völker ---------- */
+const QUEEN_COLORS = [{ n: "blau", c: "#2b6cd8" }, { n: "weiß", c: "#f4f4f4" }, { n: "gelb", c: "#f2c200" }, { n: "rot", c: "#d63a2f" }, { n: "grün", c: "#2e9b4f" }]; // Index = Jahr % 5
+const queenColor = (y) => y ? QUEEN_COLORS[Number(y) % 5] : null;
+const qDot = (y) => { const c = queenColor(y); return c ? `<span class="qdot" style="background:${c.c}" title="${c.n}"></span>` : ""; };
+const Q_ORIGINS = { nachzucht: "eigene Nachzucht", gekauft: "gekauft", schwarm: "Schwarm", umweiselung: "stille Umweiselung", unbekannt: "unbekannt" };
+const MATINGS = { "": "Begattung unbekannt", belegstelle: "Belegstelle", stand: "Standbegattung", instrumentell: "instrumentell besamt" };
+const C_ORIGINS = { ableger: "Ableger", schwarm: "Schwarm", kauf: "gekauft / übernommen", vereinigung: "Vereinigung", sonstiges: "sonstiges" };
+const EVENTS = {
+  ableger: { label: "Ableger gebildet", fields: ["newName", "queenMode"] },
+  schwarm_gefangen: { label: "Schwarm eingefangen", fields: ["newName"] },
+  schwarm_abgegangen: { label: "Schwarm abgegangen", fields: [] },
+  neues_volk: { label: "Volk gekauft / übernommen", fields: ["newName"] },
+  koenigin_neu: { label: "Neue Königin", fields: ["queen"] },
+  koenigin_weg: { label: "Königin verloren", fields: [] },
+  vereinigt: { label: "Vereinigt mit anderem Volk", fields: ["target"] },
+  eingegangen: { label: "Volk eingegangen", fields: [] },
+  abgegeben: { label: "Volk abgegeben / verkauft", fields: [] },
+};
+const activeColonies = (colonies) => colonies.filter(c => !c.archived);
+// „Ableger Bochum“ und „Bochum“ meinen dasselbe neue Volk
+const evKey = (n) => normName(n).replace(/^(der |die |das )?(ableger|schwarm|kunstschwarm)\s+(von\s+)?/, "");
+const queenLabel = (q) => q ? `${q.label}${q.year ? " (" + q.year + ")" : ""}` : "";
+async function activeQueen(colonyId) { return (await getAll("queens")).find(q => q.colonyId === colonyId && q.status !== "ausgeschieden") || null; }
+async function retireQueen(colonyId, reason, date) {
+  const q = await activeQueen(colonyId); if (!q) return null;
+  Object.assign(q, { status: "ausgeschieden", endDate: date, endReason: reason }); await put("queens", q); return q;
+}
+async function newQueen(data) {
+  const all = await getAll("queens");
+  const year = data.year ? Number(data.year) : null;
+  const n = all.filter(q => (q.year || null) === year).length + 1;
+  const q = { id: uid(), label: `K-${year || "?"}-${n}`, year, marked: !!data.marked, origin: data.origin || "unbekannt", motherId: data.motherId || null,
+    breeder: data.breeder || "", line: data.line || "", mating: data.mating || "", belegstelle: data.belegstelle || "", colonyId: data.colonyId || null,
+    since: data.since || todayStr(), status: "aktiv", note: data.note || "", createdAt: new Date().toISOString() };
+  await put("queens", q); return q;
+}
+async function createColony(name, origin) {
+  const c = { id: uid(), name: cleanNewName(name), aliases: [], origin, createdAt: new Date().toISOString() };
+  await put("colonies", c); return c;
+}
+async function archiveColony(id, reason, date) {
+  const c = await getOne("colonies", id); if (!c) return;
+  Object.assign(c, { archived: true, archivedAt: date, archiveReason: reason }); await put("colonies", c);
+}
+async function autoStatus(colonyId, key, value, date) {
+  await put("entries", { id: uid(), type: "status", colonyId, statusKey: key, statusValue: value, statusAction: "set", text: statusText(key, value, "set"),
+    date, createdAt: new Date().toISOString(), source: "auto", done: false });
+}
+function eventText(ev, colonies) {
+  const tgt = colonies.find(c => c.id === ev.targetId)?.name || "?";
+  const q = ev.queen || {};
+  switch (ev.eventType) {
+    case "ableger": return `Ableger „${ev.newName || "?"}“ gebildet` + (ev.queenMode === "alte" ? " (mit alter Königin)" : ev.queenMode === "zugesetzt" ? " (Königin zugesetzt)" : " (Nachschaffung)");
+    case "schwarm_gefangen": return `Schwarm eingefangen → „${ev.newName || "?"}“`;
+    case "neues_volk": return `Volk „${ev.newName || "?"}“ gekauft / übernommen`;
+    case "koenigin_neu": return `Neue Königin: ${Q_ORIGINS[q.origin] || "Herkunft unbekannt"}${q.year ? ", Jg. " + q.year : ""}${q.line ? ", " + q.line : ""}`;
+    case "vereinigt": return `Vereinigt mit ${tgt}`;
+    default: return EVENTS[ev.eventType]?.label || "Ereignis";
+  }
+}
+// Ereignis anwenden: legt Völker/Königinnen an, archiviert usw. Gibt die Volk-ID zurück, unter der der Eintrag stehen soll.
+async function applyEvent(ev, colonyId, date) {
+  const need = () => { if (!colonyId) throw new Error(`„${EVENTS[ev.eventType].label}“ braucht ein Volk.`); };
+  const year = Number(date.slice(0, 4));
+  switch (ev.eventType) {
+    case "ableger": {
+      need(); if (!ev.newName) throw new Error("Bitte einen Namen für den Ableger angeben.");
+      const c = await createColony(ev.newName, { type: "ableger", parentIds: [colonyId], date });
+      ev.newColonyId = c.id;
+      await autoStatus(c.id, "beute", "ableger", date);
+      if (ev.queenMode === "alte") {
+        const q = await activeQueen(colonyId); if (q) { q.colonyId = c.id; await put("queens", q); }
+        await autoStatus(colonyId, "koenigin", "umweiselung", date);
+      } else if (ev.queenMode === "zugesetzt") {
+        await autoStatus(c.id, "koenigin", "umweiselung", date);
+      } else {
+        const mother = await activeQueen(colonyId);
+        await newQueen({ colonyId: c.id, origin: "nachzucht", motherId: mother?.id, year, since: date, note: "Nachschaffung im Ableger" });
+        await autoStatus(c.id, "koenigin", "umweiselung", date);
+      }
+      return colonyId;
+    }
+    case "schwarm_gefangen": {
+      if (!ev.newName) throw new Error("Bitte einen Namen für den Schwarm angeben.");
+      const c = await createColony(ev.newName, { type: "schwarm", parentIds: colonyId ? [colonyId] : [], date });
+      ev.newColonyId = c.id;
+      const q = colonyId ? await activeQueen(colonyId) : null;
+      if (q) { q.colonyId = c.id; await put("queens", q); await autoStatus(colonyId, "koenigin", "umweiselung", date); }
+      else await newQueen({ colonyId: c.id, origin: "schwarm", since: date, note: "mit Schwarm gekommen" });
+      return colonyId || c.id;
+    }
+    case "neues_volk": {
+      if (!ev.newName) throw new Error("Bitte einen Namen für das neue Volk angeben.");
+      const c = await createColony(ev.newName, { type: "kauf", parentIds: [], date });
+      ev.newColonyId = c.id;
+      return c.id;
+    }
+    case "schwarm_abgegangen": need(); await retireQueen(colonyId, "mit Schwarm abgegangen", date); await autoStatus(colonyId, "koenigin", "umweiselung", date); return colonyId;
+    case "koenigin_neu": {
+      need();
+      const q = ev.queen || {};
+      await retireQueen(colonyId, "umgeweiselt", date);
+      const mother = q.motherColonyId ? await activeQueen(q.motherColonyId) : null;
+      await newQueen({ ...q, colonyId, motherId: mother?.id || q.motherId || null, since: date });
+      return colonyId;
+    }
+    case "koenigin_weg": need(); await retireQueen(colonyId, "verloren", date); await autoStatus(colonyId, "koenigin", "weisellos", date); return colonyId;
+    case "vereinigt": {
+      need(); if (!ev.targetId || ev.targetId === colonyId) throw new Error("Bitte das Volk wählen, mit dem vereinigt wurde.");
+      const tgt = await getOne("colonies", ev.targetId);
+      await retireQueen(colonyId, "bei Vereinigung entfernt", date);
+      await archiveColony(colonyId, `vereinigt mit ${tgt?.name || "?"}`, date);
+      return colonyId;
+    }
+    case "eingegangen": need(); await retireQueen(colonyId, "Volk eingegangen", date); await archiveColony(colonyId, "eingegangen", date); return colonyId;
+    case "abgegeben": need(); await retireQueen(colonyId, "mit Volk abgegeben", date); await archiveColony(colonyId, "abgegeben / verkauft", date); return colonyId;
+  }
+  return colonyId;
+}
+function eventFieldsHtml(ev = {}, colonies = []) {
+  const t = ev.eventType || "ableger", q = ev.queen || {};
+  const act = activeColonies(colonies);
+  return `<div class="ev-box">
+    <select class="ev-type" aria-label="Ereignis">${Object.entries(EVENTS).map(([k, d]) => `<option value="${k}" ${k === t ? "selected" : ""}>${d.label}</option>`).join("")}</select>
+    <div class="ev-f" data-f="newName"><input type="text" class="ev-newname" value="${esc(ev.newName || "")}" placeholder="Name des neuen Volks"></div>
+    <div class="ev-f" data-f="queenMode"><select class="ev-qmode">
+      <option value="nachschaffung" ${ev.queenMode !== "alte" && ev.queenMode !== "zugesetzt" ? "selected" : ""}>Königin wird nachgeschaffen</option>
+      <option value="alte" ${ev.queenMode === "alte" ? "selected" : ""}>Alte Königin geht in den Ableger</option>
+      <option value="zugesetzt" ${ev.queenMode === "zugesetzt" ? "selected" : ""}>Königin / Weiselzelle zugesetzt</option></select></div>
+    <div class="ev-f" data-f="target"><select class="ev-target"><option value="">– mit welchem Volk? –</option>${act.map(c => `<option value="${esc(c.id)}" ${c.id === ev.targetId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+    <div class="ev-f" data-f="queen" style="display:grid;gap:8px">
+      <div class="sg-sub"><select class="ev-qorigin">${Object.entries(Q_ORIGINS).map(([k, l]) => `<option value="${k}" ${k === (q.origin || "gekauft") ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <input type="number" class="ev-qyear" inputmode="numeric" value="${esc(q.year || new Date().getFullYear())}" aria-label="Jahrgang"></div>
+      <div class="sg-sub"><input type="text" class="ev-qline" value="${esc(q.line || "")}" placeholder="Linie / Rasse"><input type="text" class="ev-qbreeder" value="${esc(q.breeder || "")}" placeholder="Züchter"></div>
+      <div class="sg-sub"><select class="ev-qmother"><option value="">Muttervolk (bei Nachzucht)</option>${colonies.map(c => `<option value="${esc(c.id)}" ${c.id === q.motherColonyId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+        <select class="ev-qmating">${Object.entries(MATINGS).map(([k, l]) => `<option value="${k}" ${k === (q.mating || "") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div class="row"><input type="checkbox" class="ev-qmarked" ${q.marked ? "checked" : ""}><span class="small">gezeichnet</span></div>
+    </div>
+  </div>`;
+}
+function wireEventFields(box, onChange) {
+  const sync = () => { const f = EVENTS[$(".ev-type", box).value].fields; $$(".ev-f", box).forEach(d => d.classList.toggle("hidden", !f.includes(d.dataset.f))); onChange?.(); };
+  $(".ev-type", box).addEventListener("change", sync);
+  box.addEventListener("change", (e) => { if (!e.target.classList.contains("ev-type")) onChange?.(); });
+  sync();
+}
+function readEventFields(box) {
+  const ev = { eventType: $(".ev-type", box).value };
+  const f = EVENTS[ev.eventType].fields;
+  if (f.includes("newName")) ev.newName = $(".ev-newname", box).value.trim();
+  if (f.includes("queenMode")) ev.queenMode = $(".ev-qmode", box).value;
+  if (f.includes("target")) ev.targetId = $(".ev-target", box).value;
+  if (f.includes("queen")) ev.queen = { origin: $(".ev-qorigin", box).value, year: parseInt($(".ev-qyear", box).value) || null, line: $(".ev-qline", box).value.trim(),
+    breeder: $(".ev-qbreeder", box).value.trim(), motherColonyId: $(".ev-qmother", box).value || null, mating: $(".ev-qmating", box).value, marked: $(".ev-qmarked", box).checked };
+  return ev;
+}
+
+/* Königin bearbeiten */
+async function renderQueen(id, presetColony) {
+  const isNew = id === "neu";
+  const [queens, colonies] = await Promise.all([getAll("queens"), getAll("colonies")]);
+  const q = isNew ? { year: new Date().getFullYear(), origin: "gekauft", status: "aktiv", colonyId: presetColony || null, since: todayStr(), marked: false } : queens.find(x => x.id === id);
+  if (!q) { setChrome("Königin", { back: true }); app.innerHTML = `<div class="empty">Diese Königin gibt es nicht mehr.</div>`; return; }
+  setChrome(isNew ? "Neue Königin" : "Königin " + q.label, { back: true });
+  const others = queens.filter(x => x.id !== q.id).sort((a, b) => (b.year || 0) - (a.year || 0));
+  app.innerHTML = `<section class="card">
+    <div class="sg-sub">
+      <div><label for="qYear" style="margin-top:0">Jahrgang</label><input type="number" id="qYear" inputmode="numeric" value="${esc(q.year || "")}"></div>
+      <div><label style="margin-top:0">Zeichenfarbe</label><div id="qColor" style="padding:10px 0">${qDot(q.year)} ${queenColor(q.year)?.n || "–"}</div></div>
+    </div>
+    <div class="row" style="margin-top:10px"><input type="checkbox" id="qMarked" ${q.marked ? "checked" : ""}><label for="qMarked" style="margin:0;font-weight:400">gezeichnet</label></div>
+    <label for="qOrigin">Herkunft</label><select id="qOrigin">${Object.entries(Q_ORIGINS).map(([k, l]) => `<option value="${k}" ${k === q.origin ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <label for="qMother">Mutter-Königin (Stammbaum)</label><select id="qMother"><option value="">– unbekannt / keine –</option>${others.map(x => `<option value="${esc(x.id)}" ${x.id === q.motherId ? "selected" : ""}>${esc(queenLabel(x))}${x.colonyId ? " – " + esc(colonyLabel(x.colonyId, colonies)) : ""}</option>`).join("")}</select>
+    <div class="sg-sub" style="margin-top:4px">
+      <div><label for="qLine">Linie / Rasse</label><input type="text" id="qLine" value="${esc(q.line || "")}" placeholder="z. B. Carnica"></div>
+      <div><label for="qBreeder">Züchter</label><input type="text" id="qBreeder" value="${esc(q.breeder || "")}"></div>
+    </div>
+    <div class="sg-sub" style="margin-top:4px">
+      <div><label for="qMating">Begattung</label><select id="qMating">${Object.entries(MATINGS).map(([k, l]) => `<option value="${k}" ${k === (q.mating || "") ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div><label for="qBeleg">Belegstelle</label><input type="text" id="qBeleg" value="${esc(q.belegstelle || "")}"></div>
+    </div>
+    <label for="qColony">Sitzt in Volk</label><select id="qColony"><option value="">– keinem –</option>${colonies.map(c => `<option value="${esc(c.id)}" ${c.id === q.colonyId ? "selected" : ""}>${esc(c.name)}${c.archived ? " (archiviert)" : ""}</option>`).join("")}</select>
+    <label for="qSince">Im Volk seit</label><input type="date" id="qSince" value="${esc(q.since || "")}">
+    <div class="row" style="margin-top:14px"><input type="checkbox" id="qGone" ${q.status === "ausgeschieden" ? "checked" : ""}><label for="qGone" style="margin:0;font-weight:400">ausgeschieden</label></div>
+    <div id="qGoneRow" class="sg-sub ${q.status === "ausgeschieden" ? "" : "hidden"}" style="margin-top:8px"><input type="date" id="qEnd" value="${esc(q.endDate || todayStr())}"><input type="text" id="qEndReason" value="${esc(q.endReason || "")}" placeholder="Grund"></div>
+    <label for="qNote">Notiz</label><textarea id="qNote" rows="2">${esc(q.note || "")}</textarea>
+    <div class="row" style="margin-top:18px"><button class="btn-primary" id="qSave">${isNew ? "Anlegen" : "Speichern"}</button><span class="grow"></span>${isNew ? "" : `<button class="btn-ghost btn-danger" id="qDel">Löschen</button>`}</div>
+  </section>`;
+  $("#qYear").addEventListener("input", (e) => { const y = parseInt(e.target.value); $("#qColor").innerHTML = `${qDot(y)} ${queenColor(y)?.n || "–"}`; });
+  $("#qGone").addEventListener("change", (e) => $("#qGoneRow").classList.toggle("hidden", !e.target.checked));
+  $("#qSave").addEventListener("click", async () => {
+    const year = parseInt($("#qYear").value) || null;
+    const data = { year, marked: $("#qMarked").checked, origin: $("#qOrigin").value, motherId: $("#qMother").value || null, line: $("#qLine").value.trim(),
+      breeder: $("#qBreeder").value.trim(), mating: $("#qMating").value, belegstelle: $("#qBeleg").value.trim(), colonyId: $("#qColony").value || null,
+      since: $("#qSince").value, note: $("#qNote").value.trim(), status: $("#qGone").checked ? "ausgeschieden" : "aktiv",
+      endDate: $("#qGone").checked ? $("#qEnd").value : "", endReason: $("#qGone").checked ? $("#qEndReason").value.trim() : "" };
+    if (data.status === "aktiv" && data.colonyId) {
+      const other = (await getAll("queens")).find(x => x.id !== q.id && x.colonyId === data.colonyId && x.status !== "ausgeschieden");
+      if (other && confirm(`In diesem Volk sitzt bereits ${queenLabel(other)}. Soll sie als ausgeschieden markiert werden?`)) {
+        Object.assign(other, { status: "ausgeschieden", endDate: data.since || todayStr(), endReason: "umgeweiselt" }); await put("queens", other);
+      }
+    }
+    if (isNew) { const nq = await newQueen(data); Object.assign(nq, data); await put("queens", nq); }
+    else { const cur = await getOne("queens", q.id); if (cur.year !== year) cur.label = cur.label.replace(/^K-[^-]+-/, `K-${year || "?"}-`); Object.assign(cur, data); await put("queens", cur); }
+    toast("Gespeichert");
+    if (navDepth > 0) history.back(); else location.hash = data.colonyId ? "#/volk/" + encodeURIComponent(data.colonyId) : "#/stammbaum";
+  });
+  $("#qDel")?.addEventListener("click", async () => {
+    if (!confirm("Diese Königin löschen? Im Stammbaum fehlt sie dann.")) return;
+    await del("queens", q.id); toast("Gelöscht"); if (navDepth > 0) history.back(); else location.hash = "#/stammbaum";
+  });
+}
+
+/* Stammbäume & Archiv */
+async function renderPedigree() {
+  setChrome("Stammbaum", { back: true });
+  const [colonies, queens] = await Promise.all([getAll("colonies"), getAll("queens")]);
+  const byId = Object.fromEntries(colonies.map(c => [c.id, c]));
+  const kids = (id) => colonies.filter(c => (c.origin?.parentIds || []).includes(id)).sort((a, b) => (a.origin?.date || a.createdAt || "").localeCompare(b.origin?.date || b.createdAt || ""));
+  const seen = new Set();
+  const cNode = (c) => {
+    if (seen.has(c.id)) return ""; seen.add(c.id);
+    const q = queens.find(x => x.colonyId === c.id && x.status !== "ausgeschieden");
+    const o = c.origin ? `${C_ORIGINS[c.origin.type] || ""}${c.origin.date ? " " + c.origin.date.slice(0, 4) : ""}` : "";
+    const ch = kids(c.id);
+    return `<li class="${c.archived ? "arch" : ""}"><a href="#/volk/${encodeURIComponent(c.id)}">${esc(c.name)}</a> ${q ? qDot(q.year) : ""} <span class="muted">${esc([o, c.archived ? "🗄️ " + (c.archiveReason || "archiviert") : ""].filter(Boolean).join(" · "))}</span>
+      ${ch.length ? `<ul>${ch.map(cNode).join("")}</ul>` : ""}</li>`;
+  };
+  const roots = colonies.filter(c => !(c.origin?.parentIds || []).some(p => byId[p])).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const qKids = (id) => queens.filter(x => x.motherId === id).sort((a, b) => (a.year || 0) - (b.year || 0));
+  const qSeen = new Set();
+  const qNode = (q) => {
+    if (qSeen.has(q.id)) return ""; qSeen.add(q.id);
+    const ch = qKids(q.id);
+    const info = [Q_ORIGINS[q.origin], q.line, q.colonyId ? colonyLabel(q.colonyId, colonies) : "", q.status === "ausgeschieden" ? "ausgeschieden" + (q.endReason ? ": " + q.endReason : "") : ""].filter(Boolean).join(" · ");
+    return `<li class="${q.status === "ausgeschieden" ? "arch" : ""}">${qDot(q.year)} <a href="#/koenigin/${encodeURIComponent(q.id)}">${esc(queenLabel(q))}</a> <span class="muted">${esc(info)}</span>${ch.length ? `<ul>${ch.map(qNode).join("")}</ul>` : ""}</li>`;
+  };
+  const qRoots = queens.filter(q => !q.motherId || !queens.some(x => x.id === q.motherId)).sort((a, b) => (a.year || 0) - (b.year || 0));
+  app.innerHTML = `<section class="card"><h2>🐝 Völker</h2>${colonies.length ? `<ul class="tree">${roots.map(cNode).join("")}</ul>` : `<p class="muted small">Noch keine Völker.</p>`}</section>
+    <section class="card"><h2>👑 Königinnen</h2>${queens.length ? `<ul class="tree">${qRoots.map(qNode).join("")}</ul>` : `<p class="muted small">Noch keine Königinnen erfasst. Trage sie auf der Seite eines Volks ein oder sprich sie ein („Neue Königin bei Hertha, Carnica 2026, gezeichnet“).</p>`}
+      <div class="row" style="margin-top:10px"><a class="btn btn-small" href="#/koenigin/neu">+ Königin</a></div></section>
+    <p class="muted small">Farbpunkt = Zeichenfarbe nach Jahrgang (1/6 weiß, 2/7 gelb, 3/8 rot, 4/9 grün, 5/0 blau). Blasse Einträge sind archiviert oder ausgeschieden.</p>`;
+}
+async function renderArchive() {
+  setChrome("Archiv", { back: true });
+  const colonies = (await getAll("colonies")).filter(c => c.archived).sort((a, b) => (b.archivedAt || "").localeCompare(a.archivedAt || ""));
+  app.innerHTML = colonies.length ? colonies.map(c => `<a class="card colony-card" href="#/volk/${encodeURIComponent(c.id)}"><h2>${esc(c.name)} <span class="muted">›</span></h2>
+      <div class="muted small">${esc(c.archiveReason || "archiviert")}${c.archivedAt ? " am " + fmtShort(c.archivedAt) : ""}</div></a>`).join("")
+    : `<div class="empty">Keine archivierten Völker.</div>`;
 }
 
 /* ---------- Lager ---------- */
@@ -1812,7 +2153,7 @@ async function renderSettings() {
 /* ---------- Sicherung ---------- */
 async function exportData() {
   const recordings = (await getAll("recordings")).map(({ audio, ...r }) => r);
-  const data = { app: "imkerbuch", version: 3, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), items: await getAll("items"), recordings };
+  const data = { app: "imkerbuch", version: 4, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), items: await getAll("items"), queens: await getAll("queens"), recordings };
   const name = `imkerbuch-sicherung-${todayStr()}.json`;
   const file = new File([JSON.stringify(data, null, 2)], name, { type: "application/json" });
   try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } }
@@ -1830,6 +2171,7 @@ async function importData(e) {
     for (const r of data.recordings || []) if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; }
     for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
     for (const x of data.items || []) if (!(await getOne("items", x.id))) await put("items", x);
+    for (const x of data.queens || []) if (!(await getOne("queens", x.id))) await put("queens", x);
     toast(`${n} Notizen und ${m} Einträge importiert`); renderSettings(); updateBadges();
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
 }
@@ -2157,8 +2499,8 @@ function setSyncState(state, msg = "") {
   b.title = state === "login" ? "Bitte erneut bei Microsoft anmelden (antippen)" : state === "error" ? "Synchronisation fehlgeschlagen: " + msg : "Mit OneDrive synchronisieren";
 }
 async function localSnapshot() {
-  const [colonies, entries, recordings, tombstones, items] = await Promise.all(["colonies", "entries", "recordings", "tombstones", "items"].map(getAll));
-  return { colonies, entries, recordings, tombstones, items };
+  const [colonies, entries, recordings, tombstones, items, queens] = await Promise.all(["colonies", "entries", "recordings", "tombstones", "items", "queens"].map(getAll));
+  return { colonies, entries, recordings, tombstones, items, queens };
 }
 function mergeData(local, remote) {
   const out = {};
@@ -2203,9 +2545,9 @@ async function applyLocal(local, merged) {
   } finally { applyingRemote = false; }
   return changes;
 }
-const payloadOf = (d) => ({ app: "imkerbuch", version: 4, colonies: d.colonies, entries: d.entries, items: d.items,
+const payloadOf = (d) => ({ app: "imkerbuch", version: 5, colonies: d.colonies, entries: d.entries, items: d.items, queens: d.queens,
   recordings: d.recordings.map(({ audio, ...r }) => r), tombstones: d.tombstones });
-const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
+const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items", "queens"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
 async function downloadRemote() {
   const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}`);
   if (res.status === 404) return { data: null, eTag: null };
@@ -2381,6 +2723,9 @@ async function render() {
     case "inventory": return renderInventory();
     case "item": return renderItem(r.id);
     case "bestandsbuch": return renderBestandsbuch();
+    case "queen": return renderQueen(r.id, r.colony);
+    case "pedigree": return renderPedigree();
+    case "archive": return renderArchive();
     case "entry": { const e = await getOne("entries", r.id); if (!e) { setChrome("Eintrag", { back: true }); app.innerHTML = `<div class="empty">Diesen Eintrag gibt es nicht mehr.</div>`; return; } return renderEntryForm(e); }
     case "new": return renderEntryForm(null, { colony: r.colony, type: r.type });
     default: return renderHome();
