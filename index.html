@@ -216,7 +216,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "4.4.0";
+const APP_VERSION = "4.5.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -281,7 +281,7 @@ const METRICS = {
   brutraum: { label: "Brutraum (Zargen)", short: "Brutraum", unit: "Zargen" },
   honigraum: { label: "Honigraum (Zargen)", short: "Honigraum", unit: "Zargen" },
   gewicht: { label: "Gewicht (kg)", short: "Gewicht", unit: "kg" },
-  varroa: { label: "Varroafall (Milben)", short: "Varroafall", unit: "Milben" },
+  varroa: { label: "Varroafall (Milben/Tag)", short: "Varroafall", unit: "Milben/Tag" },
 };
 
 /* ---------- Speicher (IndexedDB) ---------- */
@@ -320,12 +320,15 @@ const putMany = (store, arr) => tx(store, "readwrite", s => { for (const x of ar
 async function put(store, obj) {
   if (SYNCED.has(store)) obj.updatedAt = new Date().toISOString();
   await rawPut(store, obj);
-  if (SYNCED.has(store)) scheduleSync();
+  if (SYNCED.has(store)) { markLocalChange(); scheduleSync(); }
 }
+// Zähler für lokale Änderungen: Nur wenn sich lokal oder in OneDrive etwas geändert hat, wird die Datendatei geladen
+function markLocalChange() { settings.set("syncSeq", String(Number(settings.get("syncSeq", "0")) + 1)); }
 async function del(store, id) {
   const old = SYNCED.has(store) ? await getOne(store, id) : null;
   await rawDel(store, id);
   if (SYNCED.has(store)) {
+    markLocalChange();
     await rawPut("tombstones", { id: store + ":" + id, store, itemId: id, deletedAt: new Date().toISOString(), eventId: old?.outlookEventId || null });
     scheduleSync();
   }
@@ -365,6 +368,16 @@ function dueLabel(ymd) {
   if (ymd === localDate(tm)) return "morgen fällig";
   return "fällig " + new Date(ymd + "T12:00:00").toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 }
+// Knopf gegen Doppeltippen schützen: Solange die Aktion läuft, ist er gesperrt
+function onTap(el, fn) {
+  if (!el) return;
+  let running = false;
+  el.addEventListener("click", async (ev) => {
+    if (running) return;
+    running = true; el.disabled = true;
+    try { await fn(ev); } finally { running = false; if (el.isConnected) el.disabled = false; }
+  });
+}
 let toastTimer;
 function toast(msg, ms = 2600) {
   document.querySelector(".toast")?.remove();
@@ -379,7 +392,7 @@ function fmtMetric(metric, value) {
   if (metric === "honigraum") return `Honigraum ${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
   if (metric === "zargen") return `${fmtNum(value)} Zarge${Number(value) === 1 ? "" : "n"}`;
   if (metric === "gewicht") return `${fmtNum(value)} kg`;
-  if (metric === "varroa") return `Varroafall ${fmtNum(value)}`;
+  if (metric === "varroa") return `Varroafall ${fmtNum(value)}/Tag`;
   return String(value);
 }
 const normName = (s) => String(s || "").toLowerCase().replace(/^\s*(das\s+)?volk\s+/, "").replace(/[^a-z0-9äöüß ]/g, " ").replace(/\s+/g, " ").trim();
@@ -500,14 +513,14 @@ Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
   Ein Ableger ist ein eigenes, neues Volk: Notizen zu einem Ableger, der noch nicht als Volk bekannt ist, NICHT dem Muttervolk zuordnen, sondern "colonyId": null und "colonyName": Name des Ablegers.
 - "lager": Bestandsänderung im Materiallager (gekauft, geliefert, verbraucht, eingehängt, Inventur). Felder: "itemId" (id des Lagerartikels) oder null und "itemName" (Bezeichnung); "delta" Zahl (positiv = Zugang, negativ = Verbrauch); "unit". Bei Inventur ("ich habe noch 12 Zargen") ist delta = genannte Menge minus aktueller Bestand. Bei Kauf eines Tierarzneimittels zusätzlich "charge" (Chargennummer) und "mhd" (YYYY-MM-DD; "haltbar bis Mai 2027" = 2027-05-31), falls genannt.
 - "behandlung": Anwendung eines Tierarzneimittels (z. B. Ameisensäure, Oxalsäure, Milchsäure, Thymol) an einem Volk. Felder: "itemId" oder null und "itemName", "value" = verabreichte Menge, "unit", Volk zuordnen. Für jedes behandelte Volk einen eigenen Eintrag. Dafür KEINEN zusätzlichen "lager"-Eintrag anlegen, der Bestand wird automatisch abgezogen.
-- "messwert": ein Zahlenwert mit "metric" = "brutraum" (Anzahl Brutraum-Zargen), "honigraum" (Anzahl Honigraum-Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
+- "messwert": ein Zahlenwert mit "metric" = "brutraum" (Anzahl Brutraum-Zargen), "honigraum" (Anzahl Honigraum-Zargen), "gewicht" (Gewicht in kg), "varroa" (natürlicher Varroafall in Milben PRO TAG; wird ein Zeitraum genannt, durch die Anzahl der Tage teilen, z. B. "6 Milben in 3 Tagen" = 2; ohne Zeitraum gilt die Zahl als Fall eines Tages) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
 
 Regeln:
 - Ordne jeden Eintrag dem Volk zu, über das gerade gesprochen wird. Ein Volkswechsel wird meist angesagt ("Jetzt Volk X"). Alles danach gehört zu diesem Volk, bis ein anderes genannt wird.
 - Nutze die id des bekannten Volks, auch wenn nur ein Spitzname oder ein Teil des Namens genannt wird.
 - Wird ein Volk genannt, das nicht bekannt ist: "colonyId": null und "colonyName": der genannte Name.
 - Einträge ohne Bezug zu einem Volk (z. B. "Futter kaufen"): "colonyId": null und "colonyName": null.
-- "text": kurz, sachlich, auf Deutsch, ohne Füllwörter. Messwerte bekommen ebenfalls einen kurzen Text, z. B. "Varroafall 5 Milben".
+- "text": kurz, sachlich, auf Deutsch, ohne Füllwörter. Messwerte bekommen ebenfalls einen kurzen Text, z. B. "Varroafall 2 Milben/Tag (6 in 3 Tagen)".
 - Für einen Messwert keine zusätzliche Beobachtung mit demselben Inhalt anlegen.
 - Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
 
@@ -527,6 +540,7 @@ async function analyze(text, when) {
   const items = await getAll("items");
   const sys = analysisPrompt(colonies, when, await getAll("entries"), items, await getAll("queens"));
   let lastErr;
+  let waits = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const model = await chatModel(attempt > 0);
     const body = { model, temperature: 0.2, response_format: { type: "json_object" },
@@ -535,6 +549,11 @@ async function analyze(text, when) {
     let res;
     try { res = await fetch(GROQ_URL + "/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + groqKey(), "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
     catch { throw new Error("Keine Verbindung zur KI. Bitte später erneut analysieren."); }
+    if (res.status === 429 && waits < 3) { // kostenloses Minutenlimit: kurz warten und erneut versuchen
+      waits++; attempt--;
+      await sleep(Math.min(60, parseFloat(res.headers.get("retry-after")) || 20) * 1000 + 500);
+      continue;
+    }
     if (!res.ok) {
       lastErr = await groqError(res);
       if ((lastErr.status === 400 || lastErr.status === 404) && /model/i.test(lastErr.detail || "") && !settings.get("chatModel")) continue;
@@ -615,7 +634,9 @@ function normalizeItems(items, colonies, invItems = []) {
 const busy = new Set();     // Transkription läuft
 const busyX = new Set();    // Analyse läuft
 
+const NO_AUDIO_MSG = "Der Ton dieser Aufnahme liegt nur auf dem Gerät, auf dem sie aufgenommen wurde. Bitte dort erneut senden.";
 async function processRecording(rec) {
+  if (!rec.audio) { rec.status = "error"; rec.error = NO_AUDIO_MSG; await rawPut("recordings", rec); return false; }
   rec.status = "pending"; rec.error = "";
   await put("recordings", rec);
   try {
@@ -832,9 +853,16 @@ async function renderHome() {
   }
   html += `</section>`;
   if (reviewCount) html += `<div class="banner">${reviewCount === 1 ? "Eine Notiz wartet" : reviewCount + " Notizen warten"} auf deine Prüfung (markiert mit „prüfen“).</div>`;
+  if (msConnected()) {
+    const last = settings.get("msLastSync");
+    const days = last ? (Date.now() - new Date(last).getTime()) / 86400000 : 99;
+    if (days >= 2) html += `<div class="banner err">☁️ ${last ? `Seit ${Math.floor(days)} Tagen nicht mehr` : "Noch nie"} mit OneDrive gesichert. Deine neuen Einträge liegen nur auf diesem Gerät.
+      <div class="row" style="margin-top:8px"><button class="btn-primary btn-small" id="syncNowBanner">Jetzt sichern</button></div></div>`;
+  }
   if (recs.length) html += `<input type="search" id="search" placeholder="In Notizen suchen…" value="${esc(searchTerm)}" autocomplete="off">`;
   html += `<div id="list"></div>`;
   app.innerHTML = html;
+  onTap($("#syncNowBanner"), async () => { await syncNow({ interactive: true }); if (route().view === "home") renderHome(); });
   $("#recStart")?.addEventListener("click", startRecording);
   $("#uploadLink")?.addEventListener("click", (e) => { e.preventDefault(); $("#fileInput").click(); });
   $("#recPause")?.addEventListener("click", togglePause);
@@ -1087,7 +1115,7 @@ async function renderDetail(id) {
     html += `<div class="banner"><span class="spinner"></span> Wird transkribiert…</div>`;
   } else if (r.status === "error") {
     html += `<div class="banner err"><strong>Transkription fehlgeschlagen.</strong><br>${esc(r.error)}
-      <div class="row" style="margin-top:10px"><button class="btn-primary" id="retry">Erneut versuchen</button></div></div>`;
+      ${r.audio ? `<div class="row" style="margin-top:10px"><button class="btn-primary" id="retry">Erneut versuchen</button></div>` : `<p class="small" style="margin:8px 0 0">${esc(NO_AUDIO_MSG)}</p>`}</div>`;
   } else {
     // Auswertung
     if (analyzing) html += `<div class="banner"><span class="spinner"></span> Die KI wertet die Notiz aus…</div>`;
@@ -1140,7 +1168,7 @@ async function renderDetail(id) {
   html += `<div class="row" style="margin-top:20px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Notiz löschen</button></div>`;
   app.innerHTML = html;
 
-  if (x === "review" && !analyzing) { wireSuggestionRows(r, invItems, colonies); $("#apply")?.addEventListener("click", () => applyReview(r)); }
+  if (x === "review" && !analyzing) { wireSuggestionRows(r, invItems, colonies); onTap($("#apply"), () => applyReview(r)); }
   const ta = $("#text"), saveBtn = $("#save");
   ta?.addEventListener("input", () => { saveBtn.disabled = ta.value === r.text; });
   saveBtn?.addEventListener("click", async () => {
@@ -1395,16 +1423,28 @@ async function renderEntryForm(existing, preset = {}) {
       ${isNew ? `<p class="muted small" style="margin:6px 0 0">Bei „Ableger“ und „Schwarm eingefangen“ wählst du oben das Muttervolk, bei „Volk gekauft“ kein Volk.</p>` : ""}
     </div>
     <div id="rowTreat" class="${e.type === "behandlung" ? "" : "hidden"}">
-      <label for="eMed">Arzneimittel</label>
-      <select id="eMed">${itemOptions(e.itemId, meds, null, meds.length ? "– Arzneimittel wählen –" : "– erst im Lager anlegen –")}</select>
-      <label for="eBatch">Charge</label><select id="eBatch">${batchOptions(meds.find(m => m.id === e.itemId), e.batchId)}</select>
+      <label for="eMed">Arzneimittel aus dem Lager</label>
+      <select id="eMed">${itemOptions(e.itemId, meds, null, "– nicht aus dem Lager (ohne Abbuchung) –")}</select>
+      <div id="treatBatchRow" class="${e.itemId ? "" : "hidden"}"><label for="eBatch">Charge</label><select id="eBatch">${batchOptions(meds.find(m => m.id === e.itemId), e.batchId)}</select></div>
+      <div id="treatManual" class="${e.itemId ? "hidden" : ""}">
+        <label for="eMedName">Bezeichnung des Arzneimittels</label><input type="text" id="eMedName" value="${esc(e.itemName || "")}" placeholder="z. B. Formivar 60 %">
+        <div class="sg-sub" style="margin-top:4px">
+          <div><label for="eCharge">Charge</label><input type="text" id="eCharge" value="${esc(e.charge || "")}"></div>
+          <div><label for="eMhd">MHD</label><input type="date" id="eMhd" value="${esc(e.mhd || "")}"></div>
+        </div>
+      </div>
       <div class="sg-sub" style="margin-top:4px">
         <div><label for="eQty">Menge</label><input type="number" id="eQty" inputmode="decimal" step="any" value="${e.qty ?? ""}"></div>
         <div><label for="eWarte">Wartezeit (Tage)</label><input type="number" id="eWarte" inputmode="numeric" value="${esc(e.wartezeit ?? "")}"></div>
       </div>
       <label for="eDauer">Behandlungsdauer</label><input type="text" id="eDauer" value="${esc(e.dauer || "")}" placeholder="z. B. 1 Tag, 14 Tage">
+      <label for="eSupp">Lieferant (Name und Anschrift)</label><input type="text" id="eSupp" value="${esc(e.supplier || "")}" placeholder="z. B. Imkerbedarf XY, Hauptstr. 1, 12345 Ort">
+      <div class="sg-sub" style="margin-top:4px">
+        <div><label for="eBeleg">Kaufbeleg</label><input type="text" id="eBeleg" value="${esc(e.beleg || "")}" placeholder="z. B. Rechnung 123"></div>
+        <div><label for="ePurch">Kaufdatum</label><input type="date" id="ePurch" value="${esc(e.purchasedAt || "")}"></div>
+      </div>
       <label for="eVet">Tierarzt (nur falls verschrieben)</label><input type="text" id="eVet" value="${esc(e.vet || "")}" placeholder="Name und Kontakt">
-      <p class="muted small" id="eTreatInfo" style="margin:8px 0 0">Lieferant und Beleg werden aus der Charge übernommen. Der Bestand wird automatisch abgezogen.</p>
+      <p class="muted small" id="eTreatInfo" style="margin:8px 0 0">Bei einem Mittel aus dem Lager werden Lieferant und Beleg aus der Charge vorgeschlagen und die Menge vom Bestand abgezogen.</p>
     </div>
     <div id="rowAnswer" class="${e.type === "frage" ? "" : "hidden"}">
       <label for="eAnswer">Antwort / Notiz</label><textarea id="eAnswer" rows="3">${esc(e.answer || "")}</textarea>
@@ -1436,13 +1476,25 @@ async function renderEntryForm(existing, preset = {}) {
   });
   $("#eSKey").addEventListener("change", (ev) => { $("#eSVal").innerHTML = statusValOptions(ev.target.value); });
   if (isNew) wireEventFields($("#rowEvent .ev-box"));
+  const fillFromBatch = () => {
+    const m = meds.find(x => x.id === $("#eMed").value);
+    const b = (m?.batches || []).find(x => x.id === $("#eBatch").value);
+    if (!m) return;
+    $("#eSupp").value = b?.supplier || m.supplier || "";
+    $("#eBeleg").value = b?.beleg || "";
+    $("#ePurch").value = b?.purchasedAt || "";
+  };
   $("#eMed").addEventListener("change", (ev) => {
     const m = meds.find(x => x.id === ev.target.value);
     $("#eBatch").innerHTML = batchOptions(m);
+    $("#treatBatchRow").classList.toggle("hidden", !m);
+    $("#treatManual").classList.toggle("hidden", !!m);
     if (m && !$("#eWarte").value) $("#eWarte").value = m.wartezeit ?? "0";
+    fillFromBatch();
   });
+  $("#eBatch").addEventListener("change", fillFromBatch);
   if (isNew) $("#eText").focus();
-  $("#eSave").addEventListener("click", async () => {
+  onTap($("#eSave"), async () => {
     const t = typeSel.value;
     const latest = existing ? await getOne("entries", existing.id) : null; // enthält ggf. inzwischen eingetroffene KI-Antworten
     const out = { ...(latest || existing || { id: uid(), createdAt: new Date().toISOString(), source: "manual" }) };
@@ -1463,15 +1515,19 @@ async function renderEntryForm(existing, preset = {}) {
     }
     if (t === "behandlung") {
       const m = meds.find(x => x.id === $("#eMed").value);
-      if (!m) { toast(meds.length ? "Bitte ein Arzneimittel wählen." : "Bitte das Arzneimittel zuerst im Lager anlegen.", 3500); return; }
+      const manualName = $("#eMedName").value.trim();
+      if (!m && !manualName) { toast("Bitte ein Arzneimittel aus dem Lager wählen oder die Bezeichnung eintragen.", 3500); return; }
       const q = parseFloat(String($("#eQty").value).replace(",", "."));
       if (!isFinite(q) || q <= 0) { toast("Bitte die verabreichte Menge eintragen."); return; }
-      const b = (m.batches || []).find(x => x.id === $("#eBatch").value) || null;
-      if (b && b.mhd && b.mhd < out.date && !confirm(`Die Charge ${b.charge || ""} ist seit ${fmtShort(b.mhd)} abgelaufen. Trotzdem eintragen?`)) return;
-      Object.assign(out, { itemId: m.id, itemName: m.name, batchId: b?.id || null, charge: b?.charge || "", mhd: b?.mhd || "", qty: q, unit: m.unit,
-        wartezeit: $("#eWarte").value === "" ? (m.wartezeit ?? "0") : $("#eWarte").value, dauer: $("#eDauer").value.trim(), vet: $("#eVet").value.trim(),
-        supplier: b?.supplier || m.supplier || "", beleg: b?.beleg || "", purchasedAt: b?.purchasedAt || "" });
-      if (!out.text) out.text = `${m.name}: ${fmtQty(q, m.unit)}`;
+      const b = m ? ((m.batches || []).find(x => x.id === $("#eBatch").value) || null) : null;
+      const mhd = m ? (b?.mhd || "") : $("#eMhd").value;
+      if (mhd && mhd < out.date && !confirm(`Die Charge ist seit ${fmtShort(mhd)} abgelaufen. Trotzdem eintragen?`)) return;
+      const unit = m ? m.unit : (out.unit || "");
+      Object.assign(out, { itemId: m?.id || null, itemName: m ? m.name : manualName, batchId: b?.id || null,
+        charge: m ? (b?.charge || "") : $("#eCharge").value.trim(), mhd, qty: q, unit,
+        wartezeit: $("#eWarte").value === "" ? (m?.wartezeit ?? "0") : $("#eWarte").value, dauer: $("#eDauer").value.trim(), vet: $("#eVet").value.trim(),
+        supplier: $("#eSupp").value.trim(), beleg: $("#eBeleg").value.trim(), purchasedAt: $("#ePurch").value });
+      if (!out.text) out.text = `${out.itemName}: ${fmtQty(q, unit)}`;
     }
     if (t === "ereignis" && isNew) {
       const ev = readEventFields($("#rowEvent .ev-box"));
@@ -1485,7 +1541,7 @@ async function renderEntryForm(existing, preset = {}) {
     const prevApplied = latest?.stockApplied || null;
     if (prevApplied) await changeStock(prevApplied.itemId, prevApplied.qty, { reason: "Korrektur Behandlung", batch: { id: prevApplied.batchId } });
     delete out.stockApplied;
-    if (t === "behandlung") {
+    if (t === "behandlung" && out.itemId) {
       await changeStock(out.itemId, -out.qty, { reason: "Behandlung " + (out.colonyId ? colonyLabel(out.colonyId, colonies) : "Stand"), batch: out.batchId ? { id: out.batchId } : null, date: out.date });
       out.stockApplied = { itemId: out.itemId, batchId: out.batchId, qty: out.qty };
     }
@@ -1700,7 +1756,7 @@ async function renderQueen(id, presetColony) {
   </section>`;
   $("#qYear").addEventListener("input", (e) => { const y = parseInt(e.target.value); $("#qColor").innerHTML = `${qDot(y)} ${queenColor(y)?.n || "–"}`; });
   $("#qGone").addEventListener("change", (e) => $("#qGoneRow").classList.toggle("hidden", !e.target.checked));
-  $("#qSave").addEventListener("click", async () => {
+  onTap($("#qSave"), async () => {
     const year = parseInt($("#qYear").value) || null;
     const data = { year, marked: $("#qMarked").checked, origin: $("#qOrigin").value, motherId: $("#qMother").value || null, line: $("#qLine").value.trim(),
       breeder: $("#qBreeder").value.trim(), mating: $("#qMating").value, belegstelle: $("#qBeleg").value.trim(), colonyId: $("#qColony").value || null,
@@ -1957,7 +2013,14 @@ function matchItem(name, items) {
   return null;
 }
 // Bestand buchen: positiv = Zugang (bei Arzneimitteln als Charge), negativ = Verbrauch (bei Arzneimitteln zuerst die Charge mit dem frühesten MHD)
-async function changeStock(itemId, delta, { reason = "", batch = null, date = todayStr() } = {}) {
+// Lagerbuchungen nacheinander ausführen, damit sich zwei gleichzeitige Buchungen nicht gegenseitig überschreiben
+let stockLock = Promise.resolve();
+function changeStock(...args) {
+  const run = stockLock.then(() => changeStockNow(...args));
+  stockLock = run.catch(() => {});
+  return run;
+}
+async function changeStockNow(itemId, delta, { reason = "", batch = null, date = todayStr() } = {}) {
   const it = await getOne("items", itemId); if (!it || !delta) return it;
   let charge = "";
   if (it.isMed) {
@@ -2073,7 +2136,7 @@ async function renderItem(id) {
   app.innerHTML = html;
 
   $("#iMed").addEventListener("change", (e) => $("#medFields").classList.toggle("hidden", !e.target.checked));
-  $("#iSave").addEventListener("click", async () => {
+  onTap($("#iSave"), async () => {
     const name = $("#iName").value.trim(); if (!name) { toast("Bitte eine Bezeichnung eingeben."); return; }
     const cur = isNew ? { id: uid(), qty: 0, batches: [], history: [], createdAt: new Date().toISOString() } : await getOne("items", id);
     Object.assign(cur, { name, category: $("#iCat").value, unit: $("#iUnit").value.trim(), minQty: parseFloat(String($("#iMin").value).replace(",", ".")) || 0,
@@ -2093,14 +2156,15 @@ async function renderItem(id) {
   });
   const mv = async (mode) => {
     const q = parseFloat(String($("#mvQty").value).replace(",", ".")); if (!isFinite(q) || q < 0 || (mode !== "set" && q === 0)) { toast("Bitte eine Menge eingeben."); return; }
-    const delta = mode === "in" ? q : mode === "out" ? -q : round2(q - itemStock(it));
+    const fresh = await getOne("items", id);
+    const delta = mode === "in" ? q : mode === "out" ? -q : round2(q - itemStock(fresh));
     await changeStock(id, delta, { reason: $("#mvReason").value.trim() || (mode === "set" ? "Inventur" : "") });
     toast("Gebucht"); renderItem(id);
   };
-  $("#mvIn")?.addEventListener("click", () => mv("in"));
-  $("#mvOut")?.addEventListener("click", () => mv("out"));
-  $("#mvSet")?.addEventListener("click", () => mv("set"));
-  $$("[data-bsave]").forEach(b => b.addEventListener("click", async () => {
+  onTap($("#mvIn"), () => mv("in"));
+  onTap($("#mvOut"), () => mv("out"));
+  onTap($("#mvSet"), () => mv("set"));
+  $$("[data-bsave]").forEach(b => onTap(b, async () => {
     const bid = b.dataset.bsave; const q = parseFloat(String($(`[data-bqty="${bid}"]`).value).replace(",", "."));
     if (!isFinite(q) || q < 0) { toast("Ungültige Menge"); return; }
     const cur = await getOne("items", id); const bt = cur.batches.find(x => x.id === bid);
@@ -2110,7 +2174,7 @@ async function renderItem(id) {
   $$("[data-bdel]").forEach(b => b.addEventListener("click", async () => {
     const cur = await getOne("items", id); cur.batches = cur.batches.filter(x => x.id !== b.dataset.bdel); await put("items", cur); renderItem(id);
   }));
-  $("#nbAdd")?.addEventListener("click", async () => {
+  onTap($("#nbAdd"), async () => {
     const q = parseFloat(String($("#nbQty").value).replace(",", ".")); if (!isFinite(q) || q <= 0) { toast("Bitte eine Menge eingeben."); return; }
     await changeStock(id, q, { reason: "Zugang", date: $("#nbDate").value || todayStr(),
       batch: { charge: $("#nbCharge").value.trim(), mhd: $("#nbMhd").value, supplier: $("#nbSupp").value.trim(), purchasedAt: $("#nbDate").value || todayStr(), beleg: $("#nbBeleg").value.trim() } });
@@ -2282,9 +2346,14 @@ async function renderSettings() {
     $("#cSave").textContent = "Änderung speichern"; $("#cCancel").classList.remove("hidden"); $("#cName").focus();
   }));
   $$("[data-del]").forEach(b => b.addEventListener("click", async () => {
-    const n = (await getAll("entries")).filter(e => e.colonyId === b.dataset.del).length;
-    if (!confirm(n ? `Dieses Volk entfernen? Seine ${n} Einträge landen dann unter „${GENERAL_NAME}“.` : "Dieses Volk aus der Liste entfernen?")) return;
-    await del("colonies", b.dataset.del); renderSettings();
+    const id = b.dataset.del;
+    const n = (await getAll("entries")).filter(e => e.colonyId === id).length;
+    if (n && !confirm(`Tipp: Ist das Volk eingegangen, vereinigt oder abgegeben, nutze besser „+ Ereignis“ in der Völkerübersicht. Dann wird es archiviert und bleibt im Stammbaum.\n\nTrotzdem endgültig löschen? Seine ${n} Einträge landen dann unter „${GENERAL_NAME}“.`)) return;
+    if (!n && !confirm("Dieses Volk aus der Liste entfernen?")) return;
+    for (const q of (await getAll("queens")).filter(q => q.colonyId === id && q.status !== "ausgeschieden")) {
+      Object.assign(q, { status: "ausgeschieden", endDate: todayStr(), endReason: "Volk gelöscht" }); await put("queens", q);
+    }
+    await del("colonies", id); renderSettings();
   }));
   $("#export").addEventListener("click", exportData);
   $("#import").addEventListener("click", () => $("#importFile").click());
@@ -2354,7 +2423,13 @@ async function importData(e) {
     const data = JSON.parse(await f.text());
     if (data.app !== "imkerbuch") throw new Error();
     let n = 0, m = 0;
-    for (const c of data.colonies || []) await put("colonies", c);
+    // Bestehende Völker nie überschreiben, nur fehlende Angaben (z. B. Herkunft) ergänzen
+    for (const c of data.colonies || []) {
+      const cur = await getOne("colonies", c.id);
+      if (!cur) { await put("colonies", c); continue; }
+      const add = Object.fromEntries(Object.entries(c).filter(([k, v]) => cur[k] === undefined && v !== undefined && k !== "updatedAt"));
+      if (Object.keys(add).length) await put("colonies", { ...cur, ...add });
+    }
     for (const r of data.recordings || []) if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; }
     for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
     for (const x of data.items || []) if (!(await getOne("items", x.id))) await put("items", x);
@@ -2579,8 +2654,9 @@ function parseAnswer(content) {
 }
 async function answerLLM(user, hasPdf, hasLearn) {
   const attempts = [{ model: "openai/gpt-oss-120b", web: true }, { model: "openai/gpt-oss-20b", web: true }, { model: null, web: false }];
-  let lastErr;
-  for (const a of attempts) {
+  let lastErr, waits = 0;
+  for (let i = 0; i < attempts.length; i++) {
+    const a = attempts[i];
     const model = a.model || await chatModel();
     const body = { model, temperature: 0.3, messages: [{ role: "system", content: answerSystem(a.web, hasPdf, hasLearn) }, { role: "user", content: user }] };
     if (/gpt-oss/.test(model)) body.reasoning_effort = "low";
@@ -2593,6 +2669,11 @@ async function answerLLM(user, hasPdf, hasLearn) {
       const content = data.choices?.[0]?.message?.content || "";
       if (content.trim()) return { ...parseAnswer(content), web: a.web, model };
       lastErr = new Error("Die KI hat eine leere Antwort geliefert.");
+      continue;
+    }
+    if (res.status === 429 && i === attempts.length - 1 && waits < 2) { // auch der letzte Versuch am Limit: kurz warten
+      waits++; i--;
+      await sleep(Math.min(60, parseFloat(res.headers.get("retry-after")) || 20) * 1000 + 500);
       continue;
     }
     lastErr = await groqError(res);
@@ -2612,7 +2693,8 @@ async function answerQuestion(id) {
   if (learnings.length) user += "\nEigene Learnings des Imkers (eigene Erfahrungen, mit Vorrang berücksichtigen):\n" + learnings.map(x => `- ${x.text}${x.colonyId ? " (Volk " + colonyLabel(x.colonyId, colonies) + ")" : ""}, notiert am ${fmtShort(x.date)}`).join("\n") + "\n";
   if (excerpts.length) user += "\nAuszüge aus der Literatur des Imkers:\n" + excerpts.map((x, i) => `[${i + 1}] ${x.title}, S. ${x.page}: ${x.text}`).join("\n\n") + "\n";
   const r = await answerLLM(user, excerpts.length > 0, learnings.length > 0);
-  const latest = (await getOne("entries", id)) || e;
+  const latest = await getOne("entries", id);
+  if (!latest) return; // Frage wurde inzwischen gelöscht – nicht wieder anlegen
   latest.aiAnswer = { text: r.text, sources: r.sources, pdf: excerpts.map(x => ({ title: x.title, page: x.page })),
     learnings: learnings.map(x => ({ id: x.id, text: x.text })), web: r.web, model: r.model, at: new Date().toISOString() };
   await put("entries", latest);
@@ -2738,7 +2820,7 @@ async function graphError(res, what) {
   return new Error(`${what}: Fehler ${res.status}${msg ? " – " + msg.slice(0, 160) : ""}`);
 }
 function msLogout() {
-  for (const k of ["msTokens", "msAccount", "msLastSync", "msLoginHint", "msPkce"]) settings.set(k, "");
+  for (const k of ["msTokens", "msAccount", "msLastSync", "msLoginHint", "msPkce", "lastSyncETag", "syncedSeq", "libEtag"]) settings.set(k, "");
 }
 
 /* ---------- OneDrive-Abgleich ---------- */
@@ -2806,11 +2888,12 @@ async function applyLocal(local, merged) {
 const payloadOf = (d) => ({ app: "imkerbuch", version: 6, colonies: d.colonies, entries: d.entries, items: d.items, queens: d.queens, reviews: d.reviews,
   recordings: d.recordings.map(({ audio, ...r }) => r), tombstones: d.tombstones });
 const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items", "queens", "reviews"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
-async function downloadRemote() {
+async function downloadRemote(knownETag = "") {
   const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}`);
   if (res.status === 404) return { data: null, eTag: null };
   if (!res.ok) throw await graphError(res, "OneDrive");
   const meta = await res.json();
+  if (knownETag && meta.eTag === knownETag) return { unchanged: true, eTag: meta.eTag };
   let r2;
   try { r2 = await fetch(meta["@microsoft.graph.downloadUrl"], { cache: "no-store" }); } catch { throw new Error("Die OneDrive-Datei konnte nicht geladen werden."); }
   if (!r2.ok) throw new Error("Die OneDrive-Datei konnte nicht geladen werden (" + r2.status + ").");
@@ -2820,17 +2903,22 @@ async function uploadRemote(payload, eTag) {
   const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}:/content`, { method: "PUT", json: payload, headers: eTag ? { "If-Match": eTag } : {} });
   if (res.status === 412 || res.status === 409) return "conflict";
   if (!res.ok) throw await graphError(res, "OneDrive");
-  return "ok";
+  try { return (await res.json()).eTag || ""; } catch { return ""; }
 }
 async function syncOnce() {
+  const seq = settings.get("syncSeq", "0");
+  const clean = seq === settings.get("syncedSeq");
+  const done = (eTag, changes) => { settings.set("lastSyncETag", eTag || ""); settings.set("syncedSeq", seq); return changes; };
   for (let attempt = 0; attempt < 3; attempt++) {
-    const remote = await downloadRemote();
+    const remote = await downloadRemote(attempt === 0 && clean ? settings.get("lastSyncETag") : "");
+    if (remote.unchanged) return done(remote.eTag, 0); // nichts Neues, weder hier noch in OneDrive
     const local = await localSnapshot();
     const merged = mergeData(local, remote.data);
     const changes = await applyLocal(local, merged);
     const payload = payloadOf(merged);
-    if (remote.data && canon(payload) === canon(remote.data)) return changes;
-    if ((await uploadRemote({ ...payload, savedAt: new Date().toISOString() }, remote.eTag)) === "ok") return changes;
+    if (remote.data && canon(payload) === canon(remote.data)) return done(remote.eTag, changes);
+    const up = await uploadRemote({ ...payload, savedAt: new Date().toISOString() }, remote.eTag);
+    if (up !== "conflict") return done(up, changes);
   }
   throw new Error("Die Daten wurden gleichzeitig auf einem anderen Gerät geändert. Bitte erneut versuchen.");
 }
@@ -2997,14 +3085,24 @@ async function render() {
     default: return renderHome();
   }
 }
-window.addEventListener("hashchange", () => { navDepth++; render(); });
+// App-Update erst laden, wenn gerade nichts eingegeben, aufgenommen oder verarbeitet wird
+let updatePending = false;
+const SAFE_VIEWS = new Set(["home", "colonies", "colony", "tasks", "questions", "knowledge", "inventory", "pedigree", "archive", "bestandsbuch"]);
+function safeToReload() {
+  return SAFE_VIEWS.has(route().view) && !recorder.mr && !busy.size && !busyX.size && !busyA.size && !syncing && !answering && !scanningLib;
+}
+window.addEventListener("hashchange", () => {
+  if (updatePending && safeToReload()) { location.reload(); return; }
+  navDepth++; render();
+});
 window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {
   try { await navigator.storage?.persist?.(); } catch {}
   for (const r of await getAll("recordings")) {
     let changed = false;
-    if (r.status === "pending") { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; changed = true; }
+    // nur eigene Aufnahmen (mit Ton) als unterbrochen markieren; fremde laufen evtl. gerade auf dem anderen Gerät
+    if (r.status === "pending" && r.audio) { r.status = "error"; r.error = "Die Übertragung wurde unterbrochen."; changed = true; }
     if (r.extraction?.status === "pending") { r.extraction = { status: "error", error: "Die Auswertung wurde unterbrochen." }; changed = true; }
     if (changed) await rawPut("recordings", r);
   }
@@ -3025,8 +3123,9 @@ window.addEventListener("beforeunload", (e) => { if (recorder.mr) { e.preventDef
     let reloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (!hadController || reloaded) return;
-      if (recorder.mr) { toast("Ein Update ist da. Es wird beim nächsten Öffnen aktiv.", 4000); return; }
-      reloaded = true; location.reload();
+      updatePending = true;
+      if (safeToReload()) { reloaded = true; location.reload(); }
+      else toast("Ein Update ist da. Es wird geladen, sobald du hier fertig bist.", 4000);
     });
     navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => reg.update()).catch(() => {});
     // auch beim Zurückholen aus dem Hintergrund nach Updates schauen
