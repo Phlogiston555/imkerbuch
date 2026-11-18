@@ -135,6 +135,22 @@
   .st.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
   .st.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
   .st.info { color: var(--muted); background: var(--surface-2); }
+  .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.bb { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface); }
+  table.bb th, table.bb td { border: 1px solid var(--border); padding: 5px 7px; text-align: left; vertical-align: top; }
+  table.bb th { background: var(--surface-2); white-space: nowrap; }
+  table.bb tr[data-eid] { cursor: pointer; }
+  table.bb td.miss { color: var(--danger); font-style: italic; }
+  .print-only { display: none; }
+  @media print {
+    header, nav.tabs, .no-print, .toast { display: none !important; }
+    .print-only { display: block; }
+    main { padding: 0; max-width: none; }
+    body { background: #fff; color: #000; }
+    table.bb { font-size: 9px; }
+    table.bb th, table.bb td { border-color: #888; }
+    .tablewrap { overflow: visible; }
+  }
   .lib-doc { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; }
 
   /* Prüfansicht */
@@ -156,7 +172,7 @@
     background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
   }
-  nav.tabs a { flex: 1; text-align: center; text-decoration: none; color: var(--muted); font-size: 12px; padding: 8px 0 6px; position: relative; }
+  nav.tabs a { flex: 1; min-width: 0; text-align: center; text-decoration: none; color: var(--muted); font-size: 11px; padding: 8px 0 6px; position: relative; }
   nav.tabs a .e { display: block; font-size: 22px; line-height: 1.1; }
   nav.tabs a.active { color: var(--accent-strong); font-weight: 600; }
   nav.tabs .badge { position: absolute; top: 4px; left: calc(50% + 8px); background: var(--rec); color: #fff; border-radius: 999px; font-size: 11px; min-width: 18px; padding: 0 5px; line-height: 18px; }
@@ -187,12 +203,13 @@
   <a href="#/aufgaben" data-tab="aufgaben"><span class="e">✅</span>Aufgaben<span class="badge hidden" id="badgeTasks"></span></a>
   <a href="#/fragen" data-tab="fragen"><span class="e">❓</span>Fragen</a>
   <a href="#/wissen" data-tab="wissen"><span class="e">🧠</span>Wissen</a>
+  <a href="#/lager" data-tab="lager"><span class="e">📦</span>Lager<span class="badge hidden" id="badgeShop"></span></a>
 </nav>
 <input type="file" id="fileInput" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg,.mp4" class="hidden">
 
 <script>
 "use strict";
-const APP_VERSION = "4.1.0";
+const APP_VERSION = "4.2.0";
 const GROQ_URL = "https://api.groq.com/openai/v1";
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const PREFERRED_CHAT_MODELS = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b"];
@@ -208,6 +225,8 @@ const TYPES = {
   messwert: { label: "Messwert", plural: "Messwerte", icon: "📊" },
   wissen: { label: "Learning", plural: "Learnings", icon: "🧠" },
   status: { label: "Status", plural: "Status", icon: "🏷️" },
+  behandlung: { label: "Behandlung", plural: "Behandlungen", icon: "💊" },
+  lager: { label: "Lagerbuchung", plural: "Lagerbuchungen", icon: "📦" }, // nur in der Prüfansicht, wird direkt ins Lager gebucht
 };
 // Status eines Volks: Königin/Verhalten/Beute je ein Wert, Probleme beliebig viele (setzen/aufheben)
 const STATUS = {
@@ -261,10 +280,10 @@ const METRICS = {
 let dbPromise;
 function db() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open("imkerbuch", 4);
+    const req = indexedDB.open("imkerbuch", 5);
     req.onupgradeneeded = () => {
       const d = req.result;
-      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
+      for (const s of ["recordings", "colonies", "entries", "tombstones", "libdocs", "libchunks", "items"]) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -285,7 +304,7 @@ async function tx(store, mode, fn) {
 }
 const getAll = (store) => tx(store, "readonly", s => s.getAll());
 const getOne = (store, id) => tx(store, "readonly", s => s.get(id));
-const SYNCED = new Set(["colonies", "entries", "recordings"]);
+const SYNCED = new Set(["colonies", "entries", "recordings", "items"]);
 const rawPut = (store, obj) => tx(store, "readwrite", s => s.put(obj));
 const rawDel = (store, id) => tx(store, "readwrite", s => s.delete(id));
 const putMany = (store, arr) => tx(store, "readwrite", s => { for (const x of arr) s.put(x); });
@@ -441,7 +460,8 @@ function describeStatus(st) {
   if (st.problem.size) p.push("problem=" + [...st.problem].join("+"));
   return p.length ? " – aktueller Status: " + p.join(", ") : " – noch kein Status";
 }
-function analysisPrompt(colonies, when, entries = []) {
+function analysisPrompt(colonies, when, entries = [], items = []) {
+  const inv = items.length ? items.map(i => `- id "${i.id}": ${i.name} (Bestand ${fmtQty(itemStock(i), i.unit)}${i.isMed ? "; Tierarzneimittel" : ""})`).join("\n") : "(noch keine)";
   const d = new Date(when);
   const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
   const list = colonies.length ? colonies.map(c => `- id "${c.id}": ${c.name}${c.aliases?.length ? " (auch genannt: " + c.aliases.join(", ") + ")" : ""}${describeStatus(currentStatus(entries.filter(e => e.colonyId === c.id)))}`).join("\n") : "(noch keine eingetragen)";
@@ -451,6 +471,9 @@ Aufnahmedatum: ${localDate(d)} (${wd}).
 
 Bekannte Völker:
 ${list}
+
+Lagerartikel:
+${inv}
 
 Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
 - "beobachtung": eine Feststellung, z. B. Königin gesehen, Stifte, Brutbild, Futtervorrat, Sanftmut, Schwarmstimmung.
@@ -463,6 +486,8 @@ Zerlege die Notiz in einzelne Einträge. Erlaubte Typen:
   - "problem": ${opts("problem")}. "statusAction": "set", wenn das Problem neu besteht, "clear", wenn es laut Notiz nicht mehr besteht (z. B. Behandlung beendet, Schwarmstimmung vorbei, genug Futter).
   - "beute": ${opts("beute")}. Z. B. Ableger im Ablegerkasten gebildet → "ableger"; in eine normale Beute umgesetzt/umlogiert → "normal".
   Lege einen Status nur an, wenn er sich gegenüber dem aktuellen Status ändert oder neu ist. Status gibt es nur für ein bestimmtes Volk. Die zugrunde liegende Beobachtung zusätzlich als "beobachtung" anlegen.
+- "lager": Bestandsänderung im Materiallager (gekauft, geliefert, verbraucht, eingehängt, Inventur). Felder: "itemId" (id des Lagerartikels) oder null und "itemName" (Bezeichnung); "delta" Zahl (positiv = Zugang, negativ = Verbrauch); "unit". Bei Inventur ("ich habe noch 12 Zargen") ist delta = genannte Menge minus aktueller Bestand. Bei Kauf eines Tierarzneimittels zusätzlich "charge" (Chargennummer) und "mhd" (YYYY-MM-DD; "haltbar bis Mai 2027" = 2027-05-31), falls genannt.
+- "behandlung": Anwendung eines Tierarzneimittels (z. B. Ameisensäure, Oxalsäure, Milchsäure, Thymol) an einem Volk. Felder: "itemId" oder null und "itemName", "value" = verabreichte Menge, "unit", Volk zuordnen. Für jedes behandelte Volk einen eigenen Eintrag. Dafür KEINEN zusätzlichen "lager"-Eintrag anlegen, der Bestand wird automatisch abgezogen.
 - "messwert": ein Zahlenwert mit "metric" = "brutraum" (Anzahl Brutraum-Zargen), "honigraum" (Anzahl Honigraum-Zargen), "gewicht" (Gewicht in kg), "varroa" (Varroafall, Anzahl Milben) oder "koenigin" (Jahrgang der Königin, vierstellig; "diesjährig"/"neue Königin dieses Jahr" = Jahr des Aufnahmedatums). "value" ist eine Zahl.
 
 Regeln:
@@ -475,7 +500,7 @@ Regeln:
 - Nichts erfinden. Wenn nichts Verwertbares enthalten ist, gib eine leere Liste zurück.
 
 Antworte ausschließlich mit JSON in genau dieser Form:
-{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen|status","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"brutraum|honigraum|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null","statusKey":"koenigin|verhalten|problem|beute oder null","statusValue":"… oder null","statusAction":"set|clear oder null"}]}`;
+{"items":[{"type":"beobachtung|aufgabe|frage|messwert|wissen|status|lager|behandlung","itemId":"id oder null","itemName":"… oder null","delta":Zahl oder null,"unit":"… oder null","charge":"… oder null","mhd":"YYYY-MM-DD oder null","colonyId":"id oder null","colonyName":"Name oder null","text":"…","metric":"brutraum|honigraum|gewicht|varroa|koenigin oder null","value":Zahl oder null,"dueDate":"YYYY-MM-DD oder null","statusKey":"koenigin|verhalten|problem|beute oder null","statusValue":"… oder null","statusAction":"set|clear oder null"}]}`;
 }
 function parseJsonLoose(s) {
   s = String(s || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -487,7 +512,8 @@ function parseJsonLoose(s) {
 async function analyze(text, when) {
   if (!groqKey()) throw new Error("Kein Groq-Schlüssel hinterlegt.");
   const colonies = await getAll("colonies");
-  const sys = analysisPrompt(colonies, when, await getAll("entries"));
+  const items = await getAll("items");
+  const sys = analysisPrompt(colonies, when, await getAll("entries"), items);
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     const model = await chatModel(attempt > 0);
@@ -504,11 +530,11 @@ async function analyze(text, when) {
     }
     const data = await res.json();
     const obj = parseJsonLoose(data.choices?.[0]?.message?.content);
-    return normalizeItems(obj.items || [], colonies);
+    return normalizeItems(obj.items || [], colonies, items);
   }
   throw lastErr || new Error("Analyse fehlgeschlagen.");
 }
-function normalizeItems(items, colonies) {
+function normalizeItems(items, colonies, invItems = []) {
   const out = [];
   for (const it of items) {
     if (!it || !TYPES[it.type]) continue;
@@ -532,6 +558,26 @@ function normalizeItems(items, colonies) {
       s.statusKey = it.statusKey; s.statusValue = it.statusValue;
       s.statusAction = it.statusKey === "problem" && it.statusAction === "clear" ? "clear" : "set";
       s.text = statusText(s.statusKey, s.statusValue, s.statusAction);
+    }
+    if (it.type === "lager" || it.type === "behandlung") {
+      const known = invItems.find(i => i.id === it.itemId);
+      const id = known?.id || (it.itemName ? matchItem(it.itemName, invItems) : null);
+      const name = String(it.itemName || "").trim();
+      s.itemSel = id || (name && name.toLowerCase() !== "null" ? "new:" + cleanNewName(name) : "");
+      s.unit = String(it.unit || "").trim().replace(/^null$/i, "");
+      const num = (x) => { const v = typeof x === "number" ? x : parseFloat(String(x ?? "").replace(",", ".")); return isFinite(v) ? v : null; };
+      const item = invItems.find(i => i.id === id);
+      if (it.type === "lager") {
+        s.delta = num(it.delta);
+        if (s.delta === null || s.delta === 0) continue;
+        s.charge = String(it.charge || "").replace(/^null$/i, "").trim();
+        s.mhd = /^\d{4}-\d{2}-\d{2}$/.test(it.mhd || "") ? it.mhd : "";
+        if (!s.text) s.text = `${s.delta > 0 ? "+" : ""}${fmtQty(s.delta, s.unit || item?.unit)} ${item?.name || name}`;
+      } else {
+        s.value = num(it.value);
+        s.batchId = fefo(item).find(b => !b.mhd || b.mhd >= todayStr())?.id || fefo(item)[0]?.id || null;
+        if (!s.text) s.text = `${item?.name || name}${s.value !== null ? ": " + fmtQty(s.value, s.unit || item?.unit) : ""}`;
+      }
     }
     if (it.type === "aufgabe" && /^\d{4}-\d{2}-\d{2}$/.test(it.dueDate || "")) s.dueDate = it.dueDate;
     if (!s.text && s.type === "messwert") s.text = METRICS[s.metric].short + " " + fmtNum(s.value);
@@ -695,6 +741,9 @@ function route() {
     case "aufgaben": return { view: "tasks", tab: "aufgaben" };
     case "fragen": return { view: "questions", tab: "fragen" };
     case "wissen": return { view: "knowledge", tab: "wissen" };
+    case "lager": return { view: "inventory", tab: "lager" };
+    case "artikel": return { view: "item", id: p[1] || "neu" };
+    case "bestandsbuch": return { view: "bestandsbuch" };
     case "eintrag": return { view: "entry", id: p[1] };
     case "neu": return { view: "new", colony: p[1] || "", type: p[2] || "" };
     default: return { view: "home", tab: "notizen" };
@@ -719,6 +768,9 @@ async function updateBadges() {
   const b1 = $("#badgeReview"), b2 = $("#badgeTasks");
   b1.textContent = review; b1.classList.toggle("hidden", !review);
   b2.textContent = due; b2.classList.toggle("hidden", !due);
+  const items = await getAll("items");
+  const shop = items.filter(i => Number(i.minQty) > 0 && itemStock(i, true) < Number(i.minQty)).length;
+  const b3 = $("#badgeShop"); b3.textContent = shop; b3.classList.toggle("hidden", !shop);
 }
 
 /* ---------- Ansicht: Notizen ---------- */
@@ -799,7 +851,7 @@ function renderList(recs) {
 }
 
 /* ---------- Ansicht: Notiz mit Prüfansicht ---------- */
-function typeOptions(sel) { return Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${t.icon} ${t.label}</option>`).join(""); }
+function typeOptions(sel, exclude = []) { return Object.entries(TYPES).filter(([k]) => !exclude.includes(k)).map(([k, t]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${t.icon} ${t.label}</option>`).join(""); }
 function metricOptions(sel) { return Object.entries(METRICS).map(([k, m]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${m.label}</option>`).join(""); }
 function assignOptions(sel, colonies, unknownNames) {
   let o = colonies.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("");
@@ -807,7 +859,24 @@ function assignOptions(sel, colonies, unknownNames) {
   o += `<option value="${GENERAL}" ${sel === GENERAL ? "selected" : ""}>📍 ${GENERAL_NAME}</option>`;
   return o;
 }
-function suggestionRow(s, colonies, unknownNames) {
+function suggestionRow(s, colonies, unknownNames, items = []) {
+  const inv = s.type === "lager" || s.type === "behandlung";
+  const sel = s.itemSel || "";
+  const newName = sel.startsWith("new:") ? sel.slice(4) : null;
+  const item = items.find(i => i.id === sel);
+  const invRows = `
+    <div class="sg-sub f-inv-row ${inv ? "" : "hidden"}">
+      <select class="f-item" aria-label="Artikel">${itemOptions(sel, items, newName)}</select>
+      <input type="number" class="f-qty" inputmode="decimal" step="any" value="${s.type === "lager" ? (s.delta ?? "") : (s.value ?? "")}" aria-label="Menge" placeholder="${s.type === "lager" ? "+ Zugang / − Verbrauch" : "Menge"}">
+    </div>
+    <div class="sg-sub f-batch-row ${s.type === "behandlung" ? "" : "hidden"}"><select class="f-batch" aria-label="Charge">${batchOptions(item, s.batchId)}</select></div>
+    <div class="sg-sub f-newbatch-row ${s.type === "lager" && (item?.isMed || s.charge || s.mhd) ? "" : "hidden"}">
+      <input type="text" class="f-charge" value="${esc(s.charge || "")}" placeholder="Chargen-Nr." aria-label="Charge">
+      <input type="date" class="f-mhd" value="${esc(s.mhd || "")}" aria-label="MHD">
+    </div>`;
+  return suggestionRowBase(s, colonies, unknownNames).replace(/<\/div>\s*$/, invRows + "\n  </div>");
+}
+function suggestionRowBase(s, colonies, unknownNames) {
   return `<div class="sg ${s.include ? "" : "off"}" data-id="${esc(s.id)}">
     <div class="sg-top">
       <input type="checkbox" class="f-inc" ${s.include ? "checked" : ""} aria-label="Übernehmen">
@@ -844,16 +913,30 @@ function readSuggestions(rec) {
       s.statusKey = $(".f-skey", el).value; s.statusAction = sv.startsWith("-") ? "clear" : "set"; s.statusValue = sv.replace(/^-/, "");
       if (!s.text) s.text = statusText(s.statusKey, s.statusValue, s.statusAction);
     }
+    if (s.type === "lager" || s.type === "behandlung") {
+      s.itemSel = $(".f-item", el).value;
+      const q = parseFloat(String($(".f-qty", el).value).replace(",", "."));
+      if (s.type === "lager") { s.delta = isFinite(q) ? q : null; s.charge = $(".f-charge", el).value.trim(); s.mhd = $(".f-mhd", el).value; }
+      else { s.value = isFinite(q) ? q : null; s.batchId = $(".f-batch", el).value || null; }
+    }
   }
 }
 let saveSgTimer;
-function wireSuggestionRows(rec) {
+function wireSuggestionRows(rec, items = []) {
   for (const el of $$(".sg")) {
+    const invVis = () => {
+      const t = $(".f-type", el).value, it = items.find(i => i.id === $(".f-item", el).value);
+      $(".f-inv-row", el).classList.toggle("hidden", t !== "lager" && t !== "behandlung");
+      $(".f-batch-row", el).classList.toggle("hidden", t !== "behandlung");
+      $(".f-newbatch-row", el).classList.toggle("hidden", !(t === "lager" && (it?.isMed || $(".f-item", el).value.startsWith("new:"))));
+    };
     $(".f-type", el).addEventListener("change", (e) => {
       $(".f-metric-row", el).classList.toggle("hidden", e.target.value !== "messwert");
       $(".f-due-row", el).classList.toggle("hidden", e.target.value !== "aufgabe");
       $(".f-status-row", el).classList.toggle("hidden", e.target.value !== "status");
+      invVis();
     });
+    $(".f-item", el).addEventListener("change", (e) => { $(".f-batch", el).innerHTML = batchOptions(items.find(i => i.id === e.target.value)); invVis(); });
     const syncStatusText = () => { const sv = $(".f-sval", el).value; $(".f-text", el).value = statusText($(".f-skey", el).value, sv.replace(/^-/, ""), sv.startsWith("-") ? "clear" : "set"); };
     $(".f-skey", el).addEventListener("change", (e) => { $(".f-sval", el).innerHTML = statusValOptions(e.target.value); syncStatusText(); });
     $(".f-sval", el).addEventListener("change", syncStatusText);
@@ -877,6 +960,9 @@ async function applyReview(rec) {
   for (const s of chosen) {
     if (!s.text && !(s.type === "messwert" && s.value !== null)) { toast("Ein ausgewählter Eintrag hat keinen Text."); return; }
     if (s.type === "messwert" && s.value === null) { toast(`Bitte einen Zahlenwert für „${s.text}“ eintragen.`, 3500); return; }
+    if ((s.type === "lager" || s.type === "behandlung") && !s.itemSel) { toast(`Bitte bei „${s.text}“ einen Artikel wählen.`, 3500); return; }
+    if (s.type === "lager" && !s.delta) { toast(`Bitte bei „${s.text}“ eine Menge eintragen.`, 3500); return; }
+    if (s.type === "behandlung" && !(s.value > 0)) { toast(`Bitte bei „${s.text}“ die verabreichte Menge eintragen.`, 3500); return; }
   }
   const newIds = {};
   for (const [n, v] of Object.entries(resolution)) {
@@ -888,9 +974,35 @@ async function applyReview(rec) {
   }
   const date = localDate(new Date(rec.createdAt));
   const ids = [];
+  let stockMoves = 0;
+  const newItems = {};
+  const resolveItem = async (s) => {
+    if (!s.itemSel.startsWith("new:")) return getOne("items", s.itemSel);
+    const n = s.itemSel.slice(4);
+    if (!newItems[n]) newItems[n] = await createItem(n, { isMed: s.type === "behandlung" || !!(s.charge || s.mhd), unit: s.unit });
+    return newItems[n];
+  };
   for (const s of chosen) {
     let colonyId = s.assign === GENERAL ? null : s.assign;
     if (s.assign.startsWith("new:")) colonyId = newIds[s.assign.slice(4)];
+    if (s.type === "lager") {
+      const item = await resolveItem(s); if (!item) continue;
+      await changeStock(item.id, s.delta, { reason: "Sprachnotiz", date, batch: s.delta > 0 && item.isMed ? { charge: s.charge, mhd: s.mhd } : null });
+      stockMoves++;
+      continue;
+    }
+    if (s.type === "behandlung") {
+      const item = await resolveItem(s); if (!item) continue;
+      const cur = await getOne("items", item.id);
+      const b = (cur.batches || []).find(x => x.id === s.batchId) || fefo(cur).find(x => !x.mhd || x.mhd >= date) || fefo(cur)[0] || null;
+      const e = { id: uid(), type: "behandlung", colonyId, text: s.text || `${cur.name}: ${fmtQty(s.value, cur.unit)}`, date, createdAt: new Date().toISOString(),
+        source: "voice", recordingId: rec.id, done: false, itemId: cur.id, itemName: cur.name, batchId: b?.id || null, charge: b?.charge || "", mhd: b?.mhd || "",
+        qty: s.value, unit: cur.unit, wartezeit: cur.wartezeit ?? "0", dauer: "", vet: "", supplier: b?.supplier || cur.supplier || "", beleg: b?.beleg || "", purchasedAt: b?.purchasedAt || "" };
+      await changeStock(cur.id, -s.value, { reason: "Behandlung " + (colonyId ? colonyLabel(colonyId, await getAll("colonies")) : "Stand"), batch: b ? { id: b.id } : null, date });
+      e.stockApplied = { itemId: cur.id, batchId: b?.id || null, qty: s.value };
+      await put("entries", e); ids.push(e.id);
+      continue;
+    }
     const e = { id: uid(), type: s.type, colonyId, text: s.text || fmtMetric(s.metric, s.value), date, createdAt: new Date().toISOString(),
       source: "voice", recordingId: rec.id, done: false };
     if (s.type === "messwert") { e.metric = s.metric; e.value = s.value; }
@@ -906,7 +1018,7 @@ async function applyReview(rec) {
   if (settings.get("autoAnswer", "1") === "1") {
     for (const id of ids) { const e = await getOne("entries", id); if (e?.type === "frage") enqueueAnswer(id); }
   }
-  toast(`${ids.length} ${ids.length === 1 ? "Eintrag" : "Einträge"} übernommen`);
+  toast(`${ids.length} ${ids.length === 1 ? "Eintrag" : "Einträge"} übernommen${stockMoves ? `, ${stockMoves} Lagerbuchung${stockMoves === 1 ? "" : "en"}` : ""}`);
   updateBadges();
   renderDetail(rec.id);
 }
@@ -915,6 +1027,7 @@ async function renderDetail(id) {
   setChrome("Notiz", { back: true });
   if (!r) { app.innerHTML = `<div class="empty">Diese Notiz gibt es nicht mehr. <a href="#/">Zur Übersicht</a></div>`; return; }
   const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const invItems = (await getAll("items")).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const pending = r.status === "pending" || busy.has(r.id);
   const x = r.extraction?.status;
   const analyzing = x === "pending" || busyX.has(r.id);
@@ -954,7 +1067,7 @@ async function renderDetail(id) {
       for (const g of order) {
         const label = g === GENERAL ? "📍 " + GENERAL_NAME : g.startsWith("new:") ? "🆕 " + esc(g.slice(4)) : "🐝 " + esc(colonyLabel(g, colonies));
         html += `<div class="grp">${label}</div>`;
-        html += sugg.filter(s => s.assign === g).map(s => suggestionRow(s, colonies, unknownNames)).join("");
+        html += sugg.filter(s => s.assign === g).map(s => suggestionRow(s, colonies, unknownNames, invItems)).join("");
       }
       html += `<div class="row" style="margin:14px 0 22px">
           <button class="btn-primary" id="apply">${sugg.length ? "Ausgewählte übernehmen" : "Als erledigt markieren"}</button>
@@ -975,7 +1088,7 @@ async function renderDetail(id) {
   html += `<div class="row" style="margin-top:20px"><span class="grow"></span><button class="btn-ghost btn-danger" id="delete">Notiz löschen</button></div>`;
   app.innerHTML = html;
 
-  if (x === "review" && !analyzing) { wireSuggestionRows(r); $("#apply")?.addEventListener("click", () => applyReview(r)); }
+  if (x === "review" && !analyzing) { wireSuggestionRows(r, invItems);$("#apply")?.addEventListener("click", () => applyReview(r)); }
   const ta = $("#text"), saveBtn = $("#save");
   ta?.addEventListener("input", () => { saveBtn.disabled = ta.value === r.text; });
   saveBtn?.addEventListener("click", async () => {
@@ -1090,7 +1203,7 @@ async function renderColony(id) {
     }).join("") + `</div></section>`;
   }
   html += `<div class="row" style="margin-bottom:6px"><a class="btn btn-primary" href="#/neu/${encodeURIComponent(id)}">+ Eintrag</a></div>`;
-  const filters = [["alle", "Alle"], ...Object.entries(TYPES).map(([k, t]) => [k, t.plural])];
+  const filters = [["alle", "Alle"], ...Object.entries(TYPES).filter(([k]) => k !== "lager").map(([k, t]) => [k, t.plural])];
   html += `<div class="filters">${filters.map(([k, l]) => `<button data-f="${k}" class="${colonyFilter === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
   const list = colonyFilter === "alle" ? all : all.filter(e => e.type === colonyFilter);
   if (!list.length) html += `<div class="empty">Noch keine Einträge${colonyFilter !== "alle" ? " dieser Art" : ""}.</div>`;
@@ -1170,14 +1283,15 @@ async function renderKnowledge(fromSync = false) {
 /* ---------- Ansicht: Eintrag anlegen / bearbeiten ---------- */
 async function renderEntryForm(existing, preset = {}) {
   const colonies = (await getAll("colonies")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const meds = (await getAll("items")).filter(i => i.isMed).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const isNew = !existing;
-  const e = existing || { type: TYPES[preset.type] ? preset.type : "beobachtung", colonyId: preset.colony && preset.colony !== GENERAL ? preset.colony : null,
+  const e = existing || { type: TYPES[preset.type] && preset.type !== "lager" ? preset.type : "beobachtung", colonyId: preset.colony && preset.colony !== GENERAL ? preset.colony : null,
     text: "", date: todayStr(), done: false, metric: "varroa", value: null, dueDate: null, answer: "" };
   setChrome(isNew ? "Neuer Eintrag" : TYPES[e.type].label, { back: true });
   const rec = e.recordingId ? await getOne("recordings", e.recordingId) : null;
   app.innerHTML = `<section class="card">
     <label for="eType" style="margin-top:0">Art</label>
-    <select id="eType">${typeOptions(e.type)}</select>
+    <select id="eType">${typeOptions(e.type, ["lager"])}</select>
     <label for="eColony">Volk</label>
     <select id="eColony">${colonies.map(c => `<option value="${esc(c.id)}" ${c.id === e.colonyId ? "selected" : ""}>🐝 ${esc(c.name)}</option>`).join("")}
       <option value="" ${!e.colonyId || !colonies.some(c => c.id === e.colonyId) ? "selected" : ""}>📍 ${GENERAL_NAME}</option></select>
@@ -1195,6 +1309,18 @@ async function renderEntryForm(existing, preset = {}) {
       <label>Status</label>
       <div class="sg-sub"><select id="eSKey">${statusKeyOptions(e.statusKey || "koenigin")}</select>
       <select id="eSVal">${statusValOptions(e.statusKey || "koenigin", e.statusValue, e.statusAction)}</select></div>
+    </div>
+    <div id="rowTreat" class="${e.type === "behandlung" ? "" : "hidden"}">
+      <label for="eMed">Arzneimittel</label>
+      <select id="eMed">${itemOptions(e.itemId, meds, null, meds.length ? "– Arzneimittel wählen –" : "– erst im Lager anlegen –")}</select>
+      <label for="eBatch">Charge</label><select id="eBatch">${batchOptions(meds.find(m => m.id === e.itemId), e.batchId)}</select>
+      <div class="sg-sub" style="margin-top:4px">
+        <div><label for="eQty">Menge</label><input type="number" id="eQty" inputmode="decimal" step="any" value="${e.qty ?? ""}"></div>
+        <div><label for="eWarte">Wartezeit (Tage)</label><input type="number" id="eWarte" inputmode="numeric" value="${esc(e.wartezeit ?? "")}"></div>
+      </div>
+      <label for="eDauer">Behandlungsdauer</label><input type="text" id="eDauer" value="${esc(e.dauer || "")}" placeholder="z. B. 1 Tag, 14 Tage">
+      <label for="eVet">Tierarzt (nur falls verschrieben)</label><input type="text" id="eVet" value="${esc(e.vet || "")}" placeholder="Name und Kontakt">
+      <p class="muted small" id="eTreatInfo" style="margin:8px 0 0">Lieferant und Beleg werden aus der Charge übernommen. Der Bestand wird automatisch abgezogen.</p>
     </div>
     <div id="rowAnswer" class="${e.type === "frage" ? "" : "hidden"}">
       <label for="eAnswer">Antwort / Notiz</label><textarea id="eAnswer" rows="3">${esc(e.answer || "")}</textarea>
@@ -1218,11 +1344,17 @@ async function renderEntryForm(existing, preset = {}) {
     $("#rowMetric").classList.toggle("hidden", t !== "messwert");
     $("#rowDue").classList.toggle("hidden", t !== "aufgabe");
     $("#rowStatus").classList.toggle("hidden", t !== "status");
+    $("#rowTreat").classList.toggle("hidden", t !== "behandlung");
     $("#rowAnswer").classList.toggle("hidden", t !== "frage");
     $("#rowDone").classList.toggle("hidden", !(t === "aufgabe" || t === "frage"));
     $("#eDoneLbl").textContent = t === "frage" ? "Beantwortet" : "Erledigt";
   });
   $("#eSKey").addEventListener("change", (ev) => { $("#eSVal").innerHTML = statusValOptions(ev.target.value); });
+  $("#eMed").addEventListener("change", (ev) => {
+    const m = meds.find(x => x.id === ev.target.value);
+    $("#eBatch").innerHTML = batchOptions(m);
+    if (m && !$("#eWarte").value) $("#eWarte").value = m.wartezeit ?? "0";
+  });
   if (isNew) $("#eText").focus();
   $("#eSave").addEventListener("click", async () => {
     const t = typeSel.value;
@@ -1243,7 +1375,27 @@ async function renderEntryForm(existing, preset = {}) {
       out.metric = $("#eMetric").value; out.value = v;
       if (!out.text) out.text = fmtMetric(out.metric, v);
     }
+    if (t === "behandlung") {
+      const m = meds.find(x => x.id === $("#eMed").value);
+      if (!m) { toast(meds.length ? "Bitte ein Arzneimittel wählen." : "Bitte das Arzneimittel zuerst im Lager anlegen.", 3500); return; }
+      const q = parseFloat(String($("#eQty").value).replace(",", "."));
+      if (!isFinite(q) || q <= 0) { toast("Bitte die verabreichte Menge eintragen."); return; }
+      const b = (m.batches || []).find(x => x.id === $("#eBatch").value) || null;
+      if (b && b.mhd && b.mhd < out.date && !confirm(`Die Charge ${b.charge || ""} ist seit ${fmtShort(b.mhd)} abgelaufen. Trotzdem eintragen?`)) return;
+      Object.assign(out, { itemId: m.id, itemName: m.name, batchId: b?.id || null, charge: b?.charge || "", mhd: b?.mhd || "", qty: q, unit: m.unit,
+        wartezeit: $("#eWarte").value === "" ? (m.wartezeit ?? "0") : $("#eWarte").value, dauer: $("#eDauer").value.trim(), vet: $("#eVet").value.trim(),
+        supplier: b?.supplier || m.supplier || "", beleg: b?.beleg || "", purchasedAt: b?.purchasedAt || "" });
+      if (!out.text) out.text = `${m.name}: ${fmtQty(q, m.unit)}`;
+    }
     if (!out.text) { toast("Bitte einen Text eingeben."); return; }
+    // Lagerbestand: alte Abbuchung zurück, neue abziehen
+    const prevApplied = latest?.stockApplied || null;
+    if (prevApplied) await changeStock(prevApplied.itemId, prevApplied.qty, { reason: "Korrektur Behandlung", batch: { id: prevApplied.batchId } });
+    delete out.stockApplied;
+    if (t === "behandlung") {
+      await changeStock(out.itemId, -out.qty, { reason: "Behandlung " + (out.colonyId ? colonyLabel(out.colonyId, colonies) : "Stand"), batch: out.batchId ? { id: out.batchId } : null, date: out.date });
+      out.stockApplied = { itemId: out.itemId, batchId: out.batchId, qty: out.qty };
+    }
     if (t === "aufgabe") out.dueDate = $("#eDue").value || null;
     out.answer = t === "frage" ? $("#eAnswer").value.trim() : (out.answer || "");
     const wasDone = !!out.done;
@@ -1257,9 +1409,243 @@ async function renderEntryForm(existing, preset = {}) {
     if (navDepth > 0) history.back(); else location.hash = "#/volk/" + encodeURIComponent(out.colonyId || GENERAL);
   });
   $("#eDelete")?.addEventListener("click", async () => {
-    if (!confirm("Diesen Eintrag löschen?")) return;
+    const cur = await getOne("entries", existing.id);
+    if (!confirm(cur?.stockApplied ? "Diese Behandlung löschen? Die Menge wird dem Lager wieder gutgeschrieben." : "Diesen Eintrag löschen?")) return;
+    if (cur?.stockApplied) await changeStock(cur.stockApplied.itemId, cur.stockApplied.qty, { reason: "Behandlung gelöscht", batch: { id: cur.stockApplied.batchId } });
     await del("entries", existing.id); toast("Gelöscht"); updateBadges();
     if (navDepth > 0) history.back(); else location.hash = "#/voelker";
+  });
+}
+
+/* ---------- Lager ---------- */
+const INV_CATS = ["Medikamente", "Futter", "Rähmchen & Mittelwände", "Beuten & Zargen", "Honig & Abfüllung", "Werkzeug & Schutz", "Sonstiges"];
+const UNITS = ["Stück", "kg", "g", "l", "ml", "Packung", "Flasche", "Eimer", "Sack"];
+const round2 = (n) => Math.round(n * 100) / 100;
+const fmtQty = (n, unit) => `${fmtNum(n)}${unit ? " " + unit : ""}`;
+const fefo = (item) => (item?.batches || []).filter(b => b.qty > 0).sort((a, b) => (a.mhd || "9999").localeCompare(b.mhd || "9999"));
+function itemStock(item, validOnly = false) {
+  if (!item.isMed) return Number(item.qty) || 0;
+  const t = todayStr();
+  return round2((item.batches || []).filter(b => !validOnly || !b.mhd || b.mhd >= t).reduce((s, b) => s + (Number(b.qty) || 0), 0));
+}
+function mhdState(mhd) {
+  if (!mhd) return "";
+  const soon = new Date(); soon.setDate(soon.getDate() + 60);
+  return mhd < todayStr() ? "err" : mhd <= localDate(soon) ? "warn" : "ok";
+}
+function matchItem(name, items) {
+  const n = normName(name); if (!n) return null;
+  for (const it of items) if ([it.name, ...(it.aliases || [])].map(normName).includes(n)) return it.id;
+  for (const it of items) {
+    const ns = [it.name, ...(it.aliases || [])].map(normName).filter(Boolean);
+    if (ns.some(x => (" " + n + " ").includes(" " + x + " ") || (" " + x + " ").includes(" " + n + " "))) return it.id;
+  }
+  return null;
+}
+// Bestand buchen: positiv = Zugang (bei Arzneimitteln als Charge), negativ = Verbrauch (bei Arzneimitteln zuerst die Charge mit dem frühesten MHD)
+async function changeStock(itemId, delta, { reason = "", batch = null, date = todayStr() } = {}) {
+  const it = await getOne("items", itemId); if (!it || !delta) return it;
+  let charge = "";
+  if (it.isMed) {
+    it.batches = it.batches || [];
+    if (delta > 0) {
+      const existing = batch?.id ? it.batches.find(b => b.id === batch.id) : null;
+      if (existing) { existing.qty = round2(existing.qty + delta); charge = existing.charge; }
+      else if (!batch?.id) {
+        it.batches.push({ id: uid(), charge: batch?.charge || "", mhd: batch?.mhd || "", qty: delta, supplier: batch?.supplier || it.supplier || "",
+          purchasedAt: batch?.purchasedAt || date, beleg: batch?.beleg || "" });
+        charge = batch?.charge || "";
+      }
+    } else {
+      let rest = -delta;
+      const list = batch?.id ? it.batches.filter(b => b.id === batch.id) : fefo(it);
+      for (const b of list) { const take = Math.min(b.qty, rest); b.qty = round2(b.qty - take); rest = round2(rest - take); charge = b.charge; if (rest <= 0) break; }
+    }
+  } else it.qty = Math.max(0, round2((Number(it.qty) || 0) + delta));
+  it.history = [{ at: new Date().toISOString(), date, delta, reason, charge }, ...(it.history || [])].slice(0, 100);
+  await put("items", it);
+  return it;
+}
+async function createItem(name, { isMed = false, unit = "", category = "" } = {}) {
+  const it = { id: uid(), name: cleanNewName(name), category: category || (isMed ? "Medikamente" : "Sonstiges"), unit: unit || (isMed ? "Packung" : "Stück"),
+    minQty: 0, isMed, qty: 0, batches: [], wartezeit: isMed ? "0" : "", supplier: "", history: [], createdAt: new Date().toISOString() };
+  await put("items", it);
+  return it;
+}
+function itemOptions(sel, items, newName, placeholder = "– Artikel wählen –") {
+  let o = `<option value="">${placeholder}</option>`;
+  o += items.map(i => `<option value="${esc(i.id)}" ${i.id === sel ? "selected" : ""}>${i.isMed ? "💊" : "📦"} ${esc(i.name)} (${fmtQty(itemStock(i), i.unit)})</option>`).join("");
+  if (newName) o += `<option value="${esc("new:" + newName)}" ${sel === "new:" + newName ? "selected" : ""}>🆕 ${esc(newName)} (neu anlegen)</option>`;
+  return o;
+}
+function batchOptions(item, sel) {
+  if (!item?.isMed) return `<option value="">keine Charge</option>`;
+  const list = (item.batches || []).filter(b => b.qty > 0 || b.id === sel).sort((a, b) => (a.mhd || "9999").localeCompare(b.mhd || "9999"));
+  if (!list.length) return `<option value="">keine Charge auf Lager</option>`;
+  const def = sel || fefo(item).find(b => !b.mhd || b.mhd >= todayStr())?.id || list[0].id;
+  return list.map(b => `<option value="${esc(b.id)}" ${b.id === def ? "selected" : ""}>Charge ${esc(b.charge || "–")} · MHD ${b.mhd ? fmtShort(b.mhd) : "–"}${mhdState(b.mhd) === "err" ? " ⚠️ abgelaufen" : ""} · ${fmtQty(b.qty, item.unit)}</option>`).join("");
+}
+
+async function renderInventory() {
+  setChrome("Lager", { tab: "lager" });
+  const items = (await getAll("items")).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const shop = items.filter(i => Number(i.minQty) > 0 && itemStock(i, true) < Number(i.minQty));
+  const expiring = items.filter(i => i.isMed).flatMap(i => (i.batches || []).filter(b => b.qty > 0 && ["warn", "err"].includes(mhdState(b.mhd))).map(b => ({ i, b })));
+  const row = (i, extra = "") => `<a class="entry" href="#/artikel/${encodeURIComponent(i.id)}" style="text-decoration:none;color:inherit">
+      <span class="ico">${i.isMed ? "💊" : "📦"}</span><div style="flex:1;min-width:0"><div class="txt">${esc(i.name)}</div><div class="meta">${extra}</div></div></a>`;
+  let html = `<div class="row" style="margin-bottom:10px"><a class="btn btn-primary" href="#/artikel/neu">+ Artikel</a><a class="btn" href="#/bestandsbuch">📒 Bestandsbuch</a></div>`;
+  if (shop.length) html += `<section class="card"><h2>🛒 Einkaufsliste</h2>${shop.map(i => row(i, `<span class="overdue">nachkaufen: ${fmtQty(round2(i.minQty - itemStock(i, true)), i.unit)}</span> · Bestand ${fmtQty(itemStock(i, true), i.unit)} · Mindestbestand ${fmtQty(i.minQty, i.unit)}`)).join("")}
+      <div class="row" style="margin-top:8px"><button class="btn-small" id="shopCopy">Liste kopieren</button></div></section>`;
+  if (expiring.length) html += `<section class="card"><h2>⏳ Haltbarkeit</h2>${expiring.map(({ i, b }) => `<div class="small" style="margin:4px 0"><span class="st ${mhdState(b.mhd)}">${mhdState(b.mhd) === "err" ? "abgelaufen" : "läuft bald ab"}</span> <a href="#/artikel/${encodeURIComponent(i.id)}">${esc(i.name)}</a> · Charge ${esc(b.charge || "–")} · MHD ${fmtShort(b.mhd)} · ${fmtQty(b.qty, i.unit)}</div>`).join("")}</section>`;
+  if (!items.length) html += `<div class="empty">Noch keine Artikel. Lege sie über „+ Artikel“ an oder sprich sie ein, z. B. „Lager: 12 Brutraumzargen, 40 Rähmchen, 2 Flaschen Oxalsäure, Charge A123, haltbar bis Mai 2027“.</div>`;
+  const cats = [...INV_CATS, ...new Set(items.map(i => i.category).filter(c => c && !INV_CATS.includes(c)))];
+  for (const c of cats) {
+    const list = items.filter(i => (i.category || "Sonstiges") === c); if (!list.length) continue;
+    html += `<div class="day">${esc(c)}</div>` + list.map(i => {
+      const st = itemStock(i), low = Number(i.minQty) > 0 && itemStock(i, true) < Number(i.minQty);
+      return row(i, `${low ? `<span class="overdue">${fmtQty(st, i.unit)}</span>` : fmtQty(st, i.unit)}${Number(i.minQty) > 0 ? " · mind. " + fmtQty(i.minQty, i.unit) : ""}${i.isMed ? ` · ${(i.batches || []).filter(b => b.qty > 0).length} Charge(n)` : ""}`);
+    }).join("");
+  }
+  app.innerHTML = html;
+  $("#shopCopy")?.addEventListener("click", async () => {
+    const txt = "Einkaufsliste Imkerei:\n" + shop.map(i => `- ${i.name}: ${fmtQty(round2(i.minQty - itemStock(i, true)), i.unit)}`).join("\n");
+    try { await navigator.clipboard.writeText(txt); toast("Einkaufsliste kopiert"); } catch { toast("Kopieren nicht möglich"); }
+  });
+}
+
+async function renderItem(id) {
+  const isNew = id === "neu";
+  const it = isNew ? { name: "", category: "Sonstiges", unit: "Stück", minQty: 0, isMed: false, qty: 0, wartezeit: "0", supplier: "" } : await getOne("items", id);
+  if (!it) { setChrome("Artikel", { back: true }); app.innerHTML = `<div class="empty">Diesen Artikel gibt es nicht mehr.</div>`; return; }
+  setChrome(isNew ? "Neuer Artikel" : it.name, { back: true });
+  const cats = [...new Set([...INV_CATS, it.category].filter(Boolean))];
+  let html = `<section class="card">
+    <label for="iName" style="margin-top:0">Bezeichnung</label><input type="text" id="iName" value="${esc(it.name)}" placeholder="z. B. Oxalsäure-Dihydrat-Lösung 3,5 %">
+    <label for="iCat">Kategorie</label><select id="iCat">${cats.map(c => `<option ${c === it.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    <div class="sg-sub" style="margin-top:4px">
+      <div><label for="iUnit">Einheit</label><input type="text" id="iUnit" list="unitList" value="${esc(it.unit || "")}"><datalist id="unitList">${UNITS.map(u => `<option value="${u}">`).join("")}</datalist></div>
+      <div><label for="iMin">Mindestbestand</label><input type="number" id="iMin" inputmode="decimal" step="any" value="${it.minQty || ""}" placeholder="0 = keiner"></div>
+    </div>
+    <div class="row" style="margin-top:14px"><input type="checkbox" id="iMed" ${it.isMed ? "checked" : ""}><label for="iMed" style="margin:0;font-weight:400;flex:1">Tierarzneimittel (mit Chargen, MHD und Bestandsbuch)</label></div>
+    <div id="medFields" class="${it.isMed ? "" : "hidden"}">
+      <label for="iWarte">Wartezeit (Tage, laut Packungsbeilage)</label><input type="number" id="iWarte" inputmode="numeric" value="${esc(it.wartezeit ?? "0")}">
+      <label for="iSupp">Standard-Lieferant (Name und Anschrift)</label><input type="text" id="iSupp" value="${esc(it.supplier || "")}" placeholder="z. B. Apotheke XY, Hauptstr. 1, 12345 Ort">
+    </div>
+    ${isNew ? `<div id="startQty"><label for="iQty">Anfangsbestand</label><input type="number" id="iQty" inputmode="decimal" step="any" placeholder="0"></div>` : ""}
+    <div class="row" style="margin-top:18px"><button class="btn-primary" id="iSave">${isNew ? "Anlegen" : "Speichern"}</button><span class="grow"></span>${isNew ? "" : `<button class="btn-ghost btn-danger" id="iDel">Löschen</button>`}</div>
+  </section>`;
+  if (!isNew && !it.isMed) {
+    html += `<section class="card"><h2>Bestand: ${fmtQty(itemStock(it), it.unit)}</h2>
+      <div class="sg-sub"><input type="number" id="mvQty" inputmode="decimal" step="any" placeholder="Menge"><input type="text" id="mvReason" placeholder="Grund (optional)"></div>
+      <div class="row" style="margin-top:8px"><button id="mvIn">+ Zugang</button><button id="mvOut">− Verbrauch</button><button id="mvSet">= Inventur</button></div></section>`;
+  }
+  if (!isNew && it.isMed) {
+    const batches = (it.batches || []).slice().sort((a, b) => (a.mhd || "9999").localeCompare(b.mhd || "9999"));
+    html += `<section class="card"><h2>Chargen · Bestand ${fmtQty(itemStock(it), it.unit)}</h2>
+      ${batches.length ? batches.map(b => `<div class="lib-doc"><div>
+          <strong>Charge ${esc(b.charge || "–")}</strong> ${b.mhd ? `<span class="st ${mhdState(b.mhd)}">MHD ${fmtShort(b.mhd)}</span>` : ""}
+          <div class="muted small">${esc(b.supplier || "Lieferant fehlt")} · gekauft ${b.purchasedAt ? fmtShort(b.purchasedAt) : "–"}${b.beleg ? " · Beleg: " + esc(b.beleg) : ""}</div>
+          <div class="sg-sub" style="margin-top:6px"><input type="number" step="any" inputmode="decimal" value="${b.qty}" data-bqty="${esc(b.id)}" aria-label="Menge"><button class="btn-small" data-bsave="${esc(b.id)}">Menge speichern</button></div>
+        </div>${b.qty <= 0 ? `<button class="icon-btn btn-danger" data-bdel="${esc(b.id)}" aria-label="Charge entfernen">&#10005;</button>` : ""}</div>`).join("") : `<p class="muted small">Noch keine Charge erfasst.</p>`}
+      <h2 style="margin-top:16px">+ Neue Charge (Zugang)</h2>
+      <div class="sg-sub"><input type="text" id="nbCharge" placeholder="Chargen-Nr."><input type="date" id="nbMhd" aria-label="MHD"></div>
+      <div class="sg-sub" style="margin-top:8px"><input type="number" id="nbQty" inputmode="decimal" step="any" placeholder="Menge (${esc(it.unit || "")})"><input type="date" id="nbDate" value="${todayStr()}" aria-label="Kaufdatum"></div>
+      <input type="text" id="nbSupp" value="${esc(it.supplier || "")}" placeholder="Lieferant (Name und Anschrift)" style="margin-top:8px">
+      <input type="text" id="nbBeleg" placeholder="Beleg (z. B. Rechnung Nr. 123, liegt im Ordner)" style="margin-top:8px">
+      <div class="row" style="margin-top:8px"><button class="btn-primary" id="nbAdd">Charge hinzufügen</button></div>
+      <p class="muted small">MHD = Verfalldatum laut Packung. Kaufbelege mindestens 5 Jahre aufbewahren.</p></section>`;
+  }
+  if (!isNew && it.history?.length) html += `<details class="card"><summary>Verlauf (${it.history.length})</summary>${it.history.slice(0, 30).map(h => `<div class="small" style="margin:4px 0">${fmtShort(h.date)} · <strong>${h.delta > 0 ? "+" : ""}${fmtQty(h.delta, it.unit)}</strong>${h.charge ? " · Charge " + esc(h.charge) : ""}${h.reason ? " · " + esc(h.reason) : ""}</div>`).join("")}</details>`;
+  app.innerHTML = html;
+
+  $("#iMed").addEventListener("change", (e) => $("#medFields").classList.toggle("hidden", !e.target.checked));
+  $("#iSave").addEventListener("click", async () => {
+    const name = $("#iName").value.trim(); if (!name) { toast("Bitte eine Bezeichnung eingeben."); return; }
+    const cur = isNew ? { id: uid(), qty: 0, batches: [], history: [], createdAt: new Date().toISOString() } : await getOne("items", id);
+    Object.assign(cur, { name, category: $("#iCat").value, unit: $("#iUnit").value.trim(), minQty: parseFloat(String($("#iMin").value).replace(",", ".")) || 0,
+      isMed: $("#iMed").checked, wartezeit: $("#iWarte").value, supplier: $("#iSupp").value.trim() });
+    await put("items", cur);
+    if (isNew) {
+      const q = parseFloat(String($("#iQty").value).replace(",", "."));
+      if (isFinite(q) && q > 0) await changeStock(cur.id, q, { reason: "Anfangsbestand" });
+      toast(cur.isMed ? "Angelegt. Jetzt die Charge erfassen." : "Angelegt");
+      if (cur.isMed) { location.replace("#/artikel/" + encodeURIComponent(cur.id)); return; }
+    } else toast("Gespeichert");
+    if (navDepth > 0) history.back(); else location.hash = "#/lager";
+  });
+  $("#iDel")?.addEventListener("click", async () => {
+    if (!confirm(`„${it.name}“ aus dem Lager löschen? Bestandsbuch-Einträge bleiben erhalten.`)) return;
+    await del("items", id); toast("Gelöscht"); location.hash = "#/lager";
+  });
+  const mv = async (mode) => {
+    const q = parseFloat(String($("#mvQty").value).replace(",", ".")); if (!isFinite(q) || q < 0 || (mode !== "set" && q === 0)) { toast("Bitte eine Menge eingeben."); return; }
+    const delta = mode === "in" ? q : mode === "out" ? -q : round2(q - itemStock(it));
+    await changeStock(id, delta, { reason: $("#mvReason").value.trim() || (mode === "set" ? "Inventur" : "") });
+    toast("Gebucht"); renderItem(id);
+  };
+  $("#mvIn")?.addEventListener("click", () => mv("in"));
+  $("#mvOut")?.addEventListener("click", () => mv("out"));
+  $("#mvSet")?.addEventListener("click", () => mv("set"));
+  $$("[data-bsave]").forEach(b => b.addEventListener("click", async () => {
+    const bid = b.dataset.bsave; const q = parseFloat(String($(`[data-bqty="${bid}"]`).value).replace(",", "."));
+    if (!isFinite(q) || q < 0) { toast("Ungültige Menge"); return; }
+    const cur = await getOne("items", id); const bt = cur.batches.find(x => x.id === bid);
+    await changeStock(id, round2(q - bt.qty), { reason: "Korrektur", batch: { id: bid } });
+    toast("Gespeichert"); renderItem(id);
+  }));
+  $$("[data-bdel]").forEach(b => b.addEventListener("click", async () => {
+    const cur = await getOne("items", id); cur.batches = cur.batches.filter(x => x.id !== b.dataset.bdel); await put("items", cur); renderItem(id);
+  }));
+  $("#nbAdd")?.addEventListener("click", async () => {
+    const q = parseFloat(String($("#nbQty").value).replace(",", ".")); if (!isFinite(q) || q <= 0) { toast("Bitte eine Menge eingeben."); return; }
+    await changeStock(id, q, { reason: "Zugang", date: $("#nbDate").value || todayStr(),
+      batch: { charge: $("#nbCharge").value.trim(), mhd: $("#nbMhd").value, supplier: $("#nbSupp").value.trim(), purchasedAt: $("#nbDate").value || todayStr(), beleg: $("#nbBeleg").value.trim() } });
+    toast("Charge hinzugefügt"); renderItem(id);
+  });
+}
+
+/* ---------- Bestandsbuch (Art. 108 VO (EU) 2019/6) ---------- */
+let bbYear = "";
+function bbRows(list, colonies) {
+  return list.map(e => ({
+    Datum: fmtShort(e.date), Volk: e.colonyId ? colonyLabel(e.colonyId, colonies) : "alle / Stand", Arzneimittel: e.itemName || "", Charge: e.charge || "",
+    MHD: e.mhd ? fmtShort(e.mhd) : "", Menge: e.qty != null ? fmtQty(e.qty, e.unit) : "", Behandlungsdauer: e.dauer || "", "Wartezeit (Tage)": e.wartezeit ?? "",
+    Lieferant: e.supplier || "", "Beleg / Kaufdatum": [e.beleg, e.purchasedAt ? fmtShort(e.purchasedAt) : ""].filter(Boolean).join(", "), Tierarzt: e.vet || "", Bemerkung: e.text || "",
+  }));
+}
+const BB_REQUIRED = ["Datum", "Volk", "Arzneimittel", "Menge", "Behandlungsdauer", "Wartezeit (Tage)", "Lieferant", "Beleg / Kaufdatum"];
+async function renderBestandsbuch() {
+  setChrome("Bestandsbuch", { back: true });
+  const colonies = await getAll("colonies");
+  const all = (await getAll("entries")).filter(e => e.type === "behandlung").sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const years = [...new Set(all.map(e => (e.date || "").slice(0, 4)))].sort().reverse();
+  if (!bbYear || !years.includes(bbYear)) bbYear = years[0] || String(new Date().getFullYear());
+  const list = all.filter(e => (e.date || "").startsWith(bbYear));
+  const rows = bbRows(list, colonies);
+  const cols = Object.keys(bbRows([{}], [])[0]);
+  const missing = rows.filter(r => BB_REQUIRED.some(k => !String(r[k]).trim())).length;
+  app.innerHTML = `<div class="no-print">
+      <p class="muted small" style="margin-top:0">Anwendung von Tierarzneimitteln nach Art. 108 VO (EU) 2019/6. Aufbewahrung mindestens 5 Jahre, Kaufbelege dazu aufheben. Einträge entstehen über die Art „Behandlung“ (per Sprache oder über „+“).</p>
+      <div class="row" style="margin-bottom:10px">
+        ${years.length > 1 ? `<select id="bbYear" style="width:auto">${years.map(y => `<option ${y === bbYear ? "selected" : ""}>${y}</option>`).join("")}</select>` : ""}
+        <button id="bbPrint">Drucken / PDF</button><button id="bbCsv">CSV exportieren</button><a class="btn" href="#/neu//behandlung">+ Behandlung</a>
+      </div>
+      ${missing ? `<div class="banner err">${missing} Eintr${missing === 1 ? "ag ist" : "äge sind"} unvollständig (rot markiert). Antippen zum Ergänzen.</div>` : ""}
+    </div>
+    <h2 class="print-only">Bestandsbuch Bienen ${bbYear}</h2>
+    ${rows.length ? `<div class="tablewrap"><table class="bb"><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>
+      ${rows.map((r, i) => `<tr data-eid="${esc(list[i].id)}">${cols.map(c => `<td class="${BB_REQUIRED.includes(c) && !String(r[c]).trim() ? "miss" : ""}">${esc(r[c]) || (BB_REQUIRED.includes(c) ? "fehlt" : "")}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">Keine Behandlungen in ${bbYear}.</div>`}`;
+  $("#bbYear")?.addEventListener("change", (e) => { bbYear = e.target.value; renderBestandsbuch(); });
+  $$("tr[data-eid]").forEach(tr => tr.addEventListener("click", () => { location.hash = "#/eintrag/" + encodeURIComponent(tr.dataset.eid); }));
+  $("#bbPrint").addEventListener("click", () => window.print());
+  $("#bbCsv").addEventListener("click", async () => {
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = "﻿" + [cols.map(q).join(";"), ...rows.map(r => cols.map(c => q(r[c])).join(";"))].join("\r\n");
+    const name = `bestandsbuch-bienen-${bbYear}.csv`;
+    const file = new File([csv], name, { type: "text/csv" });
+    try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } } catch (e) { if (e.name === "AbortError") return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
   });
 }
 
@@ -1426,7 +1812,7 @@ async function renderSettings() {
 /* ---------- Sicherung ---------- */
 async function exportData() {
   const recordings = (await getAll("recordings")).map(({ audio, ...r }) => r);
-  const data = { app: "imkerbuch", version: 2, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), recordings };
+  const data = { app: "imkerbuch", version: 3, exportedAt: new Date().toISOString(), colonies: await getAll("colonies"), entries: await getAll("entries"), items: await getAll("items"), recordings };
   const name = `imkerbuch-sicherung-${todayStr()}.json`;
   const file = new File([JSON.stringify(data, null, 2)], name, { type: "application/json" });
   try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } }
@@ -1443,6 +1829,7 @@ async function importData(e) {
     for (const c of data.colonies || []) await put("colonies", c);
     for (const r of data.recordings || []) if (!(await getOne("recordings", r.id))) { await put("recordings", r); n++; }
     for (const x of data.entries || []) if (!(await getOne("entries", x.id))) { await put("entries", x); m++; }
+    for (const x of data.items || []) if (!(await getOne("items", x.id))) await put("items", x);
     toast(`${n} Notizen und ${m} Einträge importiert`); renderSettings(); updateBadges();
   } catch { toast("Diese Datei ist keine gültige Imkerbuch-Sicherung", 3500); }
 }
@@ -1770,8 +2157,8 @@ function setSyncState(state, msg = "") {
   b.title = state === "login" ? "Bitte erneut bei Microsoft anmelden (antippen)" : state === "error" ? "Synchronisation fehlgeschlagen: " + msg : "Mit OneDrive synchronisieren";
 }
 async function localSnapshot() {
-  const [colonies, entries, recordings, tombstones] = await Promise.all(["colonies", "entries", "recordings", "tombstones"].map(getAll));
-  return { colonies, entries, recordings, tombstones };
+  const [colonies, entries, recordings, tombstones, items] = await Promise.all(["colonies", "entries", "recordings", "tombstones", "items"].map(getAll));
+  return { colonies, entries, recordings, tombstones, items };
 }
 function mergeData(local, remote) {
   const out = {};
@@ -1816,9 +2203,9 @@ async function applyLocal(local, merged) {
   } finally { applyingRemote = false; }
   return changes;
 }
-const payloadOf = (d) => ({ app: "imkerbuch", version: 3, colonies: d.colonies, entries: d.entries,
+const payloadOf = (d) => ({ app: "imkerbuch", version: 4, colonies: d.colonies, entries: d.entries, items: d.items,
   recordings: d.recordings.map(({ audio, ...r }) => r), tombstones: d.tombstones });
-const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
+const canon = (p) => JSON.stringify(["colonies", "entries", "recordings", "tombstones", "items"].map(k => [...(p?.[k] || [])].sort((a, b) => a.id.localeCompare(b.id))));
 async function downloadRemote() {
   const res = await graph(`/me/drive/special/approot:/${SYNC_FILE}`);
   if (res.status === 404) return { data: null, eTag: null };
@@ -1973,6 +2360,8 @@ function refreshAfterSync() {
   else if (r.view === "tasks") renderTasks();
   else if (r.view === "questions") renderQuestions();
   else if (r.view === "knowledge") renderKnowledge(true);
+  else if (r.view === "inventory") renderInventory();
+  else if (r.view === "bestandsbuch") renderBestandsbuch();
 }
 $("#syncBtn").addEventListener("click", () => syncNow({ interactive: true }));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && msConnected() && syncState !== "login") scheduleSync(500); });
@@ -1989,6 +2378,9 @@ async function render() {
     case "tasks": return renderTasks();
     case "questions": return renderQuestions();
     case "knowledge": return renderKnowledge();
+    case "inventory": return renderInventory();
+    case "item": return renderItem(r.id);
+    case "bestandsbuch": return renderBestandsbuch();
     case "entry": { const e = await getOne("entries", r.id); if (!e) { setChrome("Eintrag", { back: true }); app.innerHTML = `<div class="empty">Diesen Eintrag gibt es nicht mehr.</div>`; return; } return renderEntryForm(e); }
     case "new": return renderEntryForm(null, { colony: r.colony, type: r.type });
     default: return renderHome();
